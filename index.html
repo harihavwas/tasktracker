@@ -163,6 +163,7 @@ textarea{resize:vertical;min-height:72px}
 .sec{margin-top:26px}
 .sec:first-child{margin-top:0}
 .sec h3{font-size:17px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.rov{padding:8px 10px;background:var(--surface2);border:var(--bw) solid var(--line);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;min-height:37px}
 .hint{color:var(--muted);font-size:12.5px;margin:0 0 12px}
 .sub{display:grid;grid-template-columns:90px 1fr 120px 110px 30px;gap:6px;align-items:center;margin-bottom:6px}
 .sub.h{color:var(--muted);font-size:12.5px;font-weight:500}
@@ -242,7 +243,9 @@ const THEMES=[
   {id:'forest',name:'Forest',c:['#17241c','#c9dc6a']}
 ];
 const COL_TYPES=[['text','Text'],['longtext','Long text'],['number','Number'],['date','Date'],['select','Dropdown']];
-const KEY='task-tracker-v1';
+/* ===== CONFIG: paste your Apps Script web app URL between the quotes ===== */
+const SCRIPT_URL='https://script.google.com/macros/s/AKfycbyP8hiHukoiwprYQP-pjooZiYbMkgZfm8ctxbdWjtD6PYlHbSP43ifgMOIG-ZmBivSuKw/exec';
+/* ===================================================================== */
 
 /* ---------- helpers ---------- */
 const $=s=>document.querySelector(s);
@@ -272,7 +275,7 @@ const defaultCols=()=>[
   {key:'dueDate',label:'Due date',type:'date',builtin:true,visible:true},
   {key:'comments',label:'Comments',type:'longtext',builtin:true,visible:true}
 ];
-const blankJd=()=>({summary:'',type:'Task',priority:'Medium',status:'To Do',assignee:'',reporter:'',created:'',updated:'',due:'',sprint:'',labels:'',description:'',comments:[],subtasks:[]});
+const blankJd=()=>({summary:'',type:'Task',priority:'Medium',status:'To Do',assignee:'',reporter:'',created:'',updated:'',due:'',sprint:'',labels:'',description:'',statusName:'',fetchedAt:'',comments:[],subtasks:[]});
 function ensureTask(t){
   t.id=t.id||uid();
   t.jd=Object.assign(blankJd(),t.jd||{});
@@ -300,113 +303,89 @@ function seed(){
   return {id:uid(),name:'Sample project',jiraBase:'',columns:defaultCols(),tasks:tasks};
 }
 let S=null,SESSION=null;
-function initState(d){
-  d.projects.forEach(p=>{p.columns=p.columns&&p.columns.length?p.columns:defaultCols();p.tasks=(p.tasks||[]).map(ensureTask);p.jiraBase=p.jiraBase||'';p.id=p.id||uid()});
-  if(!d.projects.some(p=>p.id===d.activeId))d.activeId=d.projects[0].id;
-  if(!d.theme)d.theme=sysTheme();
-  d.me=d.me||'';
-  S=d;
-}
 function sysTheme(){return (window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'}
 function applyTheme(t){document.documentElement.dataset.theme=t;try{localStorage.setItem('tt-theme',t)}catch(e){}}
+function localTheme(){try{return localStorage.getItem('tt-theme')||sysTheme()}catch(e){return sysTheme()}}
+function emptyWorkspace(){const p={id:uid(),name:'My project',jiraBase:'',columns:defaultCols(),tasks:[]};return {projects:[p],activeId:p.id}}
+function normProjects(projs){
+  projs.forEach(p=>{p.columns=p.columns&&p.columns.length?p.columns:defaultCols();p.tasks=(p.tasks||[]).map(ensureTask);p.jiraBase=p.jiraBase||'';p.id=p.id||uid()});
+  return projs;
+}
+function persist(){if(S&&SESSION)scheduleSync()}
 
-/* ---------- accounts and encryption (this browser only) ---------- */
-const TE=new TextEncoder(),TD=new TextDecoder();
-const b64=buf=>{const u=new Uint8Array(buf);let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)};
-const unb64=str=>Uint8Array.from(atob(str),c=>c.charCodeAt(0));
-async function deriveKey(pw,salt){
-  const m=await crypto.subtle.importKey('raw',TE.encode(pw),'PBKDF2',false,['deriveKey']);
-  return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:250000,hash:'SHA-256'},m,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
-}
-async function encStr(key,str){const iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,TE.encode(str));return JSON.stringify({iv:b64(iv),ct:b64(ct)})}
-async function decStr(key,str){const o=JSON.parse(str);const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(o.iv)},key,unb64(o.ct));return TD.decode(pt)}
-const USERS_KEY='tt-users';
-const getUsers=()=>{try{return JSON.parse(localStorage.getItem(USERS_KEY))||{}}catch(e){return {}}};
-const setUsers=u=>localStorage.setItem(USERS_KEY,JSON.stringify(u));
-const dkey=n=>'tt-data-'+n;
-const normName=n=>String(n||'').trim().toLowerCase();
-function emptyWorkspace(){const p={id:uid(),name:'My project',jiraBase:'',columns:defaultCols(),tasks:[]};return {projects:[p],activeId:p.id,theme:sysTheme(),me:''}}
-async function makeAccount(label,pw,admin,ws){
-  const name=normName(label),salt=crypto.getRandomValues(new Uint8Array(16)),key=await deriveKey(pw,salt);
-  localStorage.setItem(dkey(name),await encStr(key,JSON.stringify(ws)));
-  const u=getUsers();u[name]={label:String(label).trim(),salt:b64(salt),admin:!!admin};setUsers(u);
-  return {name:name,key:key,salt:salt,label:String(label).trim(),admin:!!admin};
-}
-let saveChain=Promise.resolve();
-function persist(noSync){
-  if(!SESSION||!S)return;
-  const snap=JSON.stringify(S),key=SESSION.key,k=dkey(SESSION.name);
-  saveChain=saveChain.then(async()=>{try{localStorage.setItem(k,await encStr(key,snap))}catch(e){}});
-  if(noSync!==true)scheduleSync();
-}
-let failN=0,lockUntil=0;
-async function doLogin(label,pw){
-  if(Date.now()<lockUntil)throw {code:'locked'};
-  const name=normName(label),u=getUsers()[name];
-  try{
-    if(!u)throw 0;
-    const salt=unb64(u.salt),key=await deriveKey(pw,salt);
-    const data=JSON.parse(await decStr(key,localStorage.getItem(dkey(name))));
-    failN=0;SESSION={name:name,key:key,salt:salt,label:u.label,admin:!!u.admin};initState(data);
-  }catch(e){
-    failN++;if(failN>=5){lockUntil=Date.now()+30000;failN=0}
-    throw {code:'bad'};
-  }
-}
+/* ---------- sign-in (users live in the sheet's Users tab) ---------- */
+const urlOk=()=>/^https:\/\/script\.google\.com\/.+\/exec$/.test(SCRIPT_URL);
+function savedSession(){try{const v=JSON.parse(sessionStorage.getItem('tt-session'));return v&&v.user&&v.token?v:null}catch(e){return null}}
+function saveSession(){try{sessionStorage.setItem('tt-session',JSON.stringify({user:SESSION.user,token:SESSION.token}))}catch(e){}}
+function clearSession(){try{sessionStorage.removeItem('tt-session')}catch(e){}}
 let idleT;
-function resetIdle(){clearTimeout(idleT);if(SESSION)idleT=setTimeout(()=>signOut(true),15*60*1000)}
+function resetIdle(){clearTimeout(idleT);if(SESSION)idleT=setTimeout(()=>signOut('idle'),30*60*1000)}
 ['click','keydown','mousemove','touchstart'].forEach(ev=>document.addEventListener(ev,resetIdle,{passive:true}));
-function signOut(auto){
-  clearTimeout(idleT);clearTimeout(renderT);stopSync();
-  const wait=saveChain;
+async function signOut(reason){
+  if(!SESSION)return;
+  if(reason!=='expired'&&S){
+    if(SY.status==='conflict'){toast('Resolve the sheet conflict before signing out.');openConflict();return}
+    if(dirty()){await syncRun('push');if(dirty()){toast('Your latest changes could not be saved yet, so you are still signed in.');return}}
+  }
+  clearTimeout(idleT);stopSync();clearTimeout(renderT);
+  if(reason!=='expired'){try{await sheetCall({action:'logout'})}catch(e){}}
   SESSION=null;S=null;U.d=null;U.status='';U.dl='';U.q='';
+  clearSession();
   $('#drawer').innerHTML='';$('#modal').innerHTML='';
   document.body.classList.remove('lock');document.body.classList.add('locked');
-  wait.then(showAuth);
-  if(auto===true)toast('Signed out after 15 minutes of inactivity.');
+  showAuth(reason==='expired'?'Your session expired. Sign in again.':reason==='idle'?'Signed out after 30 minutes of inactivity.':'');
 }
-function showAuth(){
-  const el=$('#auth'),users=getUsers(),first=!Object.keys(users).length;
-  el.hidden=false;
-  try{applyTheme(localStorage.getItem('tt-theme')||sysTheme())}catch(e){}
-  if(!(window.crypto&&crypto.subtle)){el.innerHTML='<div class="auth-card"><h1>Task tracker</h1><p>This page needs a secure (https) connection to sign you in.</p></div>';return}
+function showAuth(note){
+  const el=$('#auth');el.hidden=false;applyTheme(localTheme());
+  if(!urlOk()){
+    el.innerHTML='<div class="auth-card"><h1>One more step</h1><p>Open task-tracker.html in a text editor and paste your Apps Script web app URL into the SCRIPT_URL line near the top of the script. It looks like https://script.google.com/macros/s/.../exec</p></div>';
+    return;
+  }
   el.innerHTML='<form class="auth-card" id="authForm" autocomplete="on">'+
-    '<h1>'+(first?'Create the admin account':'Sign in')+'</h1>'+
-    '<p>'+(first?'This first account can add other users. Choose a password you will remember: it protects your data and cannot be recovered.':'Enter your username and password to open the tracker.')+'</p>'+
+    '<h1>Sign in</h1><p>Use your username and password from the Users sheet.</p>'+
     '<label class="f"><span>Username</span><input type="text" id="aUser" autocomplete="username" required></label>'+
-    '<label class="f"><span>Password</span><input type="password" id="aPass" autocomplete="'+(first?'new-password':'current-password')+'" required></label>'+
-    (first?'<label class="f"><span>Confirm password</span><input type="password" id="aPass2" autocomplete="new-password" required></label>':'')+
-    '<div class="auth-err" id="aErr" role="alert"></div>'+
-    '<button class="btn primary" type="submit" id="aBtn" style="justify-content:center">'+(first?'Create account':'Sign in')+'</button></form>';
+    '<label class="f"><span>Password</span><input type="password" id="aPass" autocomplete="current-password" required></label>'+
+    '<div class="auth-err" id="aErr" role="alert">'+esc(note||'')+'</div>'+
+    '<button class="btn primary" type="submit" id="aBtn" style="justify-content:center">Sign in</button></form>';
   $('#aUser').focus();
   $('#authForm').addEventListener('submit',async e=>{
     e.preventDefault();
-    const user=$('#aUser').value,pw=$('#aPass').value,err=$('#aErr'),btn=$('#aBtn');
-    err.textContent='';
-    if(first){
-      if(!normName(user)){err.textContent='Enter a username.';return}
-      if(pw.length<8){err.textContent='Use at least 8 characters for the password.';return}
-      if(pw!==$('#aPass2').value){err.textContent='The passwords do not match.';return}
-    }
-    btn.disabled=true;btn.textContent=first?'Creating...':'Signing in...';
+    const user=$('#aUser').value.trim(),pw=$('#aPass').value,err=$('#aErr'),btn=$('#aBtn');
+    err.textContent='';btn.disabled=true;btn.textContent='Signing in...';
     try{
-      if(first){
-        const p=seed(),ws={projects:[p],activeId:p.id,theme:sysTheme(),me:user.trim()};
-        const sess=await makeAccount(user,pw,true,ws);
-        SESSION=sess;initState(ws);
-      }else await doLogin(user,pw);
-      enterApp();
+      const r=await sheetCall({action:'login',user:user,password:pw},true);
+      SESSION={user:r.user,token:r.token};saveSession();
+      await openWorkspace();
     }catch(ex){
-      err.textContent=ex&&ex.code==='locked'?'Too many attempts. Wait 30 seconds and try again.':'Username or password is incorrect.';
-      btn.disabled=false;btn.textContent=first?'Create account':'Sign in';$('#aPass').value='';$('#aPass').focus();
+      SESSION=null;clearSession();
+      err.textContent=ex&&ex.code==='network'?await probeMsg():errMsg(ex);
+      btn.disabled=false;btn.textContent='Sign in';$('#aPass').value='';$('#aPass').focus();
     }
   });
 }
-function enterApp(){
+async function openWorkspace(){
+  const r=await sheetCall({action:'load'});
+  let projs=null,fresh=false;
+  if(r.projectsJson){try{projs=normProjects(JSON.parse(r.projectsJson))}catch(e){projs=null}}
+  if(!projs||!projs.length){projs=emptyWorkspace().projects;fresh=true}
+  let active=projs[0].id;
+  try{const a=localStorage.getItem('tt-active');if(a&&projs.some(p=>p.id===a))active=a}catch(e){}
+  S={projects:projs,activeId:active,theme:localTheme(),me:SESSION.user};
+  SY.version=fresh?0:(r.version||0);SY.hash=fresh?'':djb(JSON.stringify(projs));SY.last=new Date().toISOString();SY.status='ok';SY.msg='';SY.pending=null;
   $('#auth').hidden=true;$('#auth').innerHTML='';
   document.body.classList.remove('locked');
-  applyTheme(S.theme);persist(true);resetIdle();render();startSync();
+  applyTheme(S.theme);resetIdle();render();startSync(fresh);
 }
+async function boot(){
+  if(!urlOk()){showAuth();return}
+  const ss=savedSession();
+  if(!ss){showAuth();return}
+  SESSION=ss;
+  $('#auth').hidden=false;$('#auth').innerHTML='<div class="auth-card"><h1>Task tracker</h1><p>Opening your workspace...</p></div>';
+  try{await openWorkspace()}
+  catch(e){SESSION=null;clearSession();showAuth(e&&e.code==='session'?'':errMsg(e))}
+}
+window.addEventListener('beforeunload',e=>{if(S&&SESSION&&(dirty()||SY.busy)){e.preventDefault();e.returnValue=''}});
 const cur=()=>S.projects.find(p=>p.id===S.activeId)||S.projects[0];
 
 const U={status:'',dl:'',q:'',sortKey:'sl',sortDir:1,groupBy:'module',d:null};
@@ -467,8 +446,8 @@ function renderSide(){
     '<div class="palette" role="group" aria-label="Colour palette">'+
     THEMES.map(t=>'<button class="pal'+(S.theme===t.id?' on':'')+'" data-act="setTheme" data-id="'+t.id+'" aria-label="'+t.name+' palette" aria-pressed="'+(S.theme===t.id)+'" style="background:linear-gradient(135deg,'+t.c[0]+' 50%,'+t.c[1]+' 50%)"></button>').join('')+
     '</div>'+
-    '<div><div class="side-h" style="padding-bottom:4px"><span>Google Sheet</span><button class="mini" data-act="openSync">'+(syncCfg()?'Manage':'Set up')+'</button></div><div id="syncChip" class="'+((SY.status==='error'||SY.status==='conflict')&&syncCfg()?'late':'muted')+'" style="padding:0 6px;font-size:13px">'+esc(syncText())+'</div></div>'+
-    '<div class="who"><span>Signed in as <b>'+esc(SESSION.label)+'</b></span><div><button class="mini" data-act="openUsers">Account</button><button class="mini" data-act="signOut">Sign out</button></div></div>';
+    '<div><div class="side-h" style="padding-bottom:4px"><span>Google Sheet</span><button class="mini" data-act="'+(SY.status==='conflict'?'syncResolve':'syncNow')+'">'+(SY.status==='conflict'?'Resolve':'Sync now')+'</button></div><div id="syncChip" class="'+((SY.status==='error'||SY.status==='conflict')?'late':'muted')+'" style="padding:0 6px;font-size:13px">'+esc(syncText())+'</div></div>'+
+    '<div class="who"><span>Signed in as <b>'+esc(SESSION.user)+'</b></span><div><button class="mini" data-act="signOut">Sign out</button></div></div>';
 }
 function renderHead(){
   const p=cur(),c=counts(p.tasks);
@@ -590,7 +569,13 @@ function newTask(p){
   p.columns.forEach(c=>{if(!(c.key in t))t[c.key]=''});
   return ensureTask(t);
 }
-function openDrawer(task,isNew){U.d={t:task,isNew:isNew};renderDrawer(true)}
+function openDrawer(task,isNew){
+  U.d={t:task,isNew:isNew};renderDrawer(true);
+  if(task.jira&&!isNew){
+    const f=task.jd.fetchedAt,tried=JIRA.tried[task.id]||0;
+    if((!f||Date.now()-Date.parse(f)>10*60*1000)&&Date.now()-tried>2*60*1000)loadJira(task,task.jira);
+  }
+}
 function closeDrawer(){U.d=null;renderDrawer()}
 function renderDrawer(focus){
   const root=$('#drawer');
@@ -604,36 +589,7 @@ function renderDrawer(focus){
     '<div class="dhead"><div><h2 id="dtitle">'+esc(t.feature||(isNew?'New task':'Untitled task'))+'</h2><p class="hint" style="margin:6px 0 0">'+esc(p.name)+(isNew?'':', changes save automatically')+'</p></div><button class="icon-btn" data-act="closeDrawer" aria-label="Close">&times;</button></div>'+
     '<div class="dbody">'+
       '<div class="sec"><h3>Task</h3><div class="grid2">'+taskFields(p,t)+'</div></div>'+
-      '<div class="sec"><h3>Jira details'+(url?'<a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">Open in Jira</a>':'')+'</h3>'+
-        '<p class="hint">Fill these in from the Jira issue. Set the Jira base URL in Project settings to turn the key into a link.</p>'+
-        '<div class="grid2">'+
-          F('Summary','jd.summary',jd.summary,{full:1})+
-          F('Issue type','jd.type',jd.type,{opts:ISSUE_TYPES})+
-          F('Priority','jd.priority',jd.priority,{opts:PRIORITIES})+
-          F('Jira status','jd.status',jd.status,{opts:STATUS_IDS})+
-          F('Sprint or fix version','jd.sprint',jd.sprint)+
-          F('Assignee','jd.assignee',jd.assignee)+
-          F('Reporter','jd.reporter',jd.reporter)+
-          F('Created','jd.created',jd.created,{type:'date'})+
-          F('Updated','jd.updated',jd.updated,{type:'date'})+
-          F('Jira due date','jd.due',jd.due,{type:'date'})+
-          F('Labels (comma separated)','jd.labels',jd.labels)+
-          F('Jira description','jd.description',jd.description,{area:1,full:1,rows:4})+
-        '</div></div>'+
-      '<div class="sec"><h3>Subtasks <span class="muted" style="font:500 13px Instrument Sans,sans-serif">'+jd.subtasks.length+'</span><button class="btn sm" data-act="addSub">+ Add subtask</button></h3>'+
-        (jd.subtasks.length?'<div class="sub h"><span>Key</span><span>Summary</span><span>Status</span><span>Assignee</span><span></span></div>':'<p class="hint">No Jira subtasks added.</p>')+
-        jd.subtasks.map((s,i)=>'<div class="sub">'+
-          '<input type="text" data-bind="jd.subtasks.'+i+'.key" value="'+esc(s.key)+'" placeholder="PROJ-1" aria-label="Subtask key">'+
-          '<input type="text" data-bind="jd.subtasks.'+i+'.summary" value="'+esc(s.summary)+'" placeholder="Summary" aria-label="Subtask summary">'+
-          '<select data-bind="jd.subtasks.'+i+'.status" aria-label="Subtask status">'+STATUS_IDS.map(o=>'<option'+(o===s.status?' selected':'')+'>'+o+'</option>').join('')+'</select>'+
-          '<input type="text" data-bind="jd.subtasks.'+i+'.assignee" value="'+esc(s.assignee)+'" placeholder="Assignee" aria-label="Subtask assignee">'+
-          '<button class="icon-btn" data-act="delSub" data-i="'+i+'" aria-label="Remove subtask">&times;</button></div>').join('')+
-      '</div>'+
-      '<div class="sec"><h3>Jira comments <span class="muted" style="font:500 13px Instrument Sans,sans-serif">'+jd.comments.length+'</span></h3>'+
-        (jd.comments.length?jd.comments.map((c,i)=>'<div class="cmt"><div class="cmeta"><b>'+esc(c.author||'Unknown')+'</b><span>'+fmtDT(c.date)+'</span><button class="icon-btn" data-act="delCmt" data-i="'+i+'" aria-label="Delete comment">&times;</button></div><div class="ctext">'+esc(c.text)+'</div></div>').join(''):'<p class="hint">No comments yet.</p>')+
-        '<div class="grid2" style="margin-top:12px"><label class="f"><span>Author</span><input type="text" id="cAuthor" value="'+esc(S.me||'')+'" placeholder="Your name"></label>'+
-        '<label class="f full"><span>New comment</span><textarea id="cText" rows="3" placeholder="Paste or write a Jira comment"></textarea></label></div>'+
-        '<div style="margin-top:8px"><button class="btn sm" data-act="addCmt">Add comment</button></div></div>'+
+      '<div id="jirasec">'+jiraSections(t,p)+'</div>'+
     '</div>'+
     '<div class="dfoot">'+(isNew?'<button class="btn" data-act="closeDrawer">Cancel</button><button class="btn primary" data-act="saveNew">Add task</button>':'<button class="btn danger" data-act="delTask">Delete task</button><button class="btn primary" data-act="closeDrawer">Close</button>')+'</div>'+
   '</aside>';
@@ -673,23 +629,13 @@ function projectModal(isNew){
     '<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="'+(isNew?'createProject':'saveProject')+'">'+(isNew?'Create project':'Save changes')+'</button>');
   setTimeout(()=>{const i=$('#pName');if(i)i.focus()},0);
 }
-function usersModal(){
-  const users=getUsers();
-  let body='<div><h3 style="font-size:16px;margin-bottom:8px">Change your password</h3><div class="grid2"><label class="f"><span>New password</span><input type="password" id="npw" autocomplete="new-password"></label><label class="f"><span>Confirm</span><input type="password" id="npw2" autocomplete="new-password"></label></div><div style="margin-top:10px"><button class="btn" data-act="changePw">Change password</button></div></div>';
-  if(SESSION.admin){
-    body+='<div style="border-top:var(--bw) solid var(--line);padding-top:14px"><h3 style="font-size:16px;margin-bottom:6px">Users</h3><p class="hint">Each user has a separate, private workspace protected by their own password. If someone forgets their password, remove them and add them again; their tasks cannot be recovered.</p>'+
-    Object.keys(users).sort().map(n=>'<div class="urow"><span>'+esc(users[n].label)+(users[n].admin?' <span class="muted">(admin)</span>':'')+'</span>'+(n===SESSION.name||users[n].admin?'':'<button class="btn sm danger" data-act="delUser" data-name="'+esc(n)+'">Remove</button>')+'</div>').join('')+
-    '<div class="grid2" style="margin-top:12px"><label class="f"><span>New username</span><input type="text" id="nuName" autocomplete="off"></label><label class="f"><span>Starting password</span><input type="password" id="nuPw" autocomplete="new-password"></label></div><div style="margin-top:10px"><button class="btn primary" data-act="addUser">Add user</button></div></div>';
-  }
-  openModal('Account',body,'<button class="btn" data-act="closeModal">Close</button>');
-}
 function exportModal(){
   openModal('Export',
     '<div class="radio"><label class="check"><input type="radio" name="scope" value="current" checked> This project</label><label class="check"><input type="radio" name="scope" value="all"> All projects ('+S.projects.length+')</label></div>'+
     '<label class="check"><input type="checkbox" id="incJira" checked> Include Jira details, comments and subtasks</label>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-act="expXlsx">Download Excel</button><button class="btn primary" data-act="expPdf">Download PDF</button></div>'+
-    '<div style="border-top:var(--bw) solid var(--line);padding-top:14px"><h3 style="font-size:16px;margin-bottom:6px">Backup</h3><p class="hint">Your data is stored in this browser only. Save a backup file to move it elsewhere or keep a copy.</p>'+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="expJson">Save backup (JSON)</button><button class="btn" data-act="impJson">Restore from backup</button></div><p class="hint" style="margin:8px 0 0">Restoring replaces everything currently in the tracker.</p></div>',
+    '<div style="border-top:var(--bw) solid var(--line);padding-top:14px"><h3 style="font-size:16px;margin-bottom:6px">Backup</h3><p class="hint">Save a copy of all projects as a file, or restore one.</p>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="expJson">Save backup (JSON)</button><button class="btn" data-act="impJson">Restore from backup</button></div><p class="hint" style="margin:8px 0 0">Restoring replaces everything currently in the tracker and saves it to the sheet.</p></div>',
     '<button class="btn" data-act="closeModal">Close</button>');
 }
 
@@ -714,9 +660,9 @@ function jiraRows(projs){
   const det=[],cm=[],sub=[];
   projs.forEach(p=>sortedTasks(p,p.tasks,'sl',1).forEach(t=>{
     const j=t.jd;
-    det.push({Project:p.name,SL:t.sl,Feature:t.feature||'','Jira key':t.jira||'',Summary:j.summary,Type:j.type,Priority:j.priority,Status:j.status,Assignee:j.assignee,Reporter:j.reporter,Created:fmtDate(j.created),Updated:fmtDate(j.updated),'Due date':fmtDate(j.due),Sprint:j.sprint,Labels:j.labels,Description:j.description});
+    det.push({Project:p.name,SL:t.sl,Feature:t.feature||'','Jira key':t.jira||'',Summary:j.summary,Type:j.type,Priority:j.priority,Status:j.statusName||j.status,Assignee:j.assignee,Reporter:j.reporter,Created:fmtDate(j.created),Updated:fmtDate(j.updated),'Due date':fmtDate(j.due),Sprint:j.sprint,Labels:j.labels,Description:j.description});
     j.comments.forEach(c=>cm.push({Project:p.name,SL:t.sl,'Jira key':t.jira||'',Author:c.author,Date:fmtDT(c.date),Comment:c.text}));
-    j.subtasks.forEach(s=>sub.push({Project:p.name,SL:t.sl,Parent:t.jira||'','Subtask key':s.key,Summary:s.summary,Status:s.status,Assignee:s.assignee}));
+    j.subtasks.forEach(s=>sub.push({Project:p.name,SL:t.sl,Parent:t.jira||'','Subtask key':s.key,Summary:s.summary,Status:s.statusName||s.status,Assignee:s.assignee}));
   }));
   return {det,cm,sub};
 }
@@ -777,20 +723,19 @@ function exportPdf(){
   saveFile(name,doc.output('blob'));
 }
 
-/* ---------- Google Sheet sync (via Apps Script web app) ---------- */
-const SY={status:'off',msg:'',busy:false,timer:null,poll:null,pending:null};
+/* ---------- Google Sheet storage (via Apps Script web app) ---------- */
+const SY={status:'idle',msg:'',busy:false,timer:null,poll:null,pending:null,version:0,hash:'',last:''};
 function djb(str){let h=5381;for(let i=0;i<str.length;i++)h=((h<<5)+h+str.charCodeAt(i))|0;return (h>>>0)+':'+str.length}
-const syncCfg=()=>(S&&S.sync&&S.sync.url&&S.sync.key)?S.sync:null;
+const dirty=()=>!!S&&djb(JSON.stringify(S.projects))!==SY.hash;
 const fmtTime=iso=>{const d=new Date(iso);return isNaN(d)?'':d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})};
 function syncText(){
-  if(!syncCfg())return 'Not connected';
   switch(SY.status){
-    case 'saving':return 'Saving to sheet...';
+    case 'saving':return 'Saving to the sheet...';
     case 'loading':return 'Checking the sheet...';
     case 'error':return SY.msg||'Sync failed';
     case 'conflict':return 'Choose which version to keep';
-    case 'ok':return S.sync.last?'Synced at '+fmtTime(S.sync.last):'Synced';
-    default:return 'Waiting to sync';
+    case 'ok':return 'Saved to the sheet at '+fmtTime(SY.last);
+    default:return dirty()?'Unsaved changes':'Waiting to sync';
   }
 }
 function setSync(status,msg){
@@ -800,31 +745,43 @@ function setSync(status,msg){
 }
 function errMsg(e){
   switch(e&&e.code){
-    case 'network':return 'Could not reach the sheet. Check that the URL ends in /exec, the deployment access is set to Anyone (redeploy a new version after any change), and this page is opened from your computer or a hosted site, not inside Claude.';
-    case 'badresponse':return 'The URL did not return sync data. Deploy the web app with access set to Anyone.';
-    case 'auth':return 'The secret key does not match the one in the script.';
-    case 'setup':return 'Set your secret key in the script, then deploy again.';
+    case 'network':return 'Could not reach the sheet. Check your connection and the SCRIPT_URL in this file.';
+    case 'badresponse':return 'The URL did not return data. Redeploy the web app with access set to Anyone and check SCRIPT_URL.';
+    case 'bad_login':return 'Username or password is incorrect.';
+    case 'locked':return 'Too many attempts. Try again in 5 minutes.';
+    case 'no_users':return 'No users yet. Add rows to the Users tab of your sheet: username in column A, password in column B.';
+    case 'session':return 'Your session has expired. Sign in again.';
     case 'busy':return 'The sheet is busy. Try again in a moment.';
+    case 'jira_setup':return 'Jira is not connected yet. In Apps Script add the script properties JIRA_BASE, JIRA_EMAIL and JIRA_TOKEN, then deploy a new version.';
+    case 'jira_auth':return 'Jira rejected the email or API token saved in the script.';
+    case 'jira_forbidden':return 'The Jira account used by the script cannot view this ticket.';
+    case 'jira_notfound':return 'Jira could not find that ticket. Check the key.';
+    case 'jira_error':return 'Jira problem'+(e.message?': '+e.message:'.');
+    case 'bad_key':return 'That does not look like a Jira key (for example ABC-123).';
     case 'server':return 'Google reported an error'+(e.message?': '+e.message:'.');
-    default:return 'Sync failed.';
+    default:return 'Something went wrong. Try again.';
   }
 }
-async function sheetCall(payload){
-  const cfg=S.sync;let res,data;
-  try{res=await fetch(cfg.url,{method:'POST',redirect:'follow',body:JSON.stringify(Object.assign({key:cfg.key},payload))})}
+async function sheetCall(payload,noAuth){
+  const body=Object.assign({},payload);
+  if(!noAuth&&SESSION){body.user=SESSION.user;body.token=SESSION.token}
+  let res,data;
+  try{res=await fetch(SCRIPT_URL,{method:'POST',redirect:'follow',body:JSON.stringify(body)})}
   catch(e){throw {code:'network'}}
   try{data=await res.json()}catch(e){throw {code:'badresponse'}}
   if(!data||!data.ok)throw {code:(data&&data.error)||'error',version:data&&data.version,message:data&&data.message};
   return data;
 }
-async function probeMsg(url){
-  let reached=false;
-  try{await fetch(url,{method:'GET',mode:'no-cors'});reached=true}catch(e){reached=false}
-  if(reached)return 'Google answered, but the browser blocked the reply. This almost always means the web app is not set to "Anyone", or an older version is still deployed. In Apps Script: Deploy > Manage deployments > pencil icon > Version: New version, Who has access: Anyone > Deploy. If "Anyone" is not offered, your Google Workspace admin has restricted it.';
-  return 'Your browser cannot connect to script.google.com. Check your internet connection and turn off any ad blocker, VPN or firewall rule that may block it, or try another browser.';
+async function probeMsg(){
+  let publicOk=false,reached=false;
+  try{const r=await fetch(SCRIPT_URL,{method:'GET'});const t=await r.text();publicOk=t.indexOf('"ok":true')>=0}catch(e){publicOk=false}
+  if(publicOk)return 'Diagnosis A: the web app is public and readable, but the browser blocked the sign-in request itself (a POST). The access setting is fine. Please tell Claude you got "Diagnosis A" so the page can switch to a different way of sending requests.';
+  try{await fetch(SCRIPT_URL,{method:'GET',mode:'no-cors'});reached=true}catch(e){reached=false}
+  if(reached)return 'Diagnosis B: Google answered but is asking for a Google sign-in, so the web app is not public. In Apps Script open Deploy > Manage deployments > pencil icon. Set Execute as: Me and Who has access: Anyone (not "Anyone with Google account"), choose Version: New version, then Deploy. Make sure SCRIPT_URL is the URL of that same deployment. Check by opening the URL in an incognito window: you should see {"ok":true,...}.';
+  return 'Diagnosis C: your browser cannot connect to script.google.com. Check your internet connection and turn off any ad blocker, VPN or firewall rule that may block it, or try another browser.';
 }
 function buildMirror(projs){
-  const used=new Set(['_data','jira details','jira comments','subtasks']);
+  const used=new Set(['_data','users','jira details','jira comments','subtasks']);
   const nm=n=>{const b=String(n).replace(/[\[\]:*?\/\\]/g,' ').trim().slice(0,60)||'Project';let s=b,i=2;while(used.has(s.toLowerCase()))s=b.slice(0,56)+' '+(i++);used.add(s.toLowerCase());return s};
   const sheets=[];
   projs.forEach(p=>{
@@ -838,39 +795,35 @@ function buildMirror(projs){
   tab(r.sub,'Subtasks',['Project','SL','Parent','Subtask key','Summary','Status','Assignee']);
   return sheets;
 }
-function normProjects(projs){
-  projs.forEach(p=>{p.columns=p.columns&&p.columns.length?p.columns:defaultCols();p.tasks=(p.tasks||[]).map(ensureTask);p.jiraBase=p.jiraBase||'';p.id=p.id||uid()});
-  return projs;
-}
 function applyRemote(r){
   const projs=normProjects(JSON.parse(r.projectsJson));
   if(!projs.length)return;
   S.projects=projs;
   if(!S.projects.some(p=>p.id===S.activeId))S.activeId=S.projects[0].id;
-  S.sync.version=r.version;S.sync.hash=djb(JSON.stringify(S.projects));S.sync.last=new Date().toISOString();
-  U.d=null;renderDrawer();persist(true);render();setSync('ok');
+  SY.version=r.version;SY.hash=djb(JSON.stringify(S.projects));SY.last=new Date().toISOString();
+  U.d=null;renderDrawer();render();setSync('ok');
 }
 async function pushCore(force){
   setSync('saving');
   const json=JSON.stringify(S.projects);
-  const r=await sheetCall({action:'save',baseVersion:force?null:S.sync.version,projectsJson:json,mirror:buildMirror(JSON.parse(json))});
-  S.sync.version=r.version;S.sync.hash=djb(json);S.sync.last=new Date().toISOString();
-  persist(true);setSync('ok');
+  const r=await sheetCall({action:'save',baseVersion:force?null:SY.version,projectsJson:json,mirror:buildMirror(JSON.parse(json))});
+  SY.version=r.version;SY.hash=djb(json);SY.last=new Date().toISOString();
+  setSync('ok');
 }
 async function pullCore(){
   setSync('loading');
   const r=await sheetCall({action:'load'});
-  const dirty=djb(JSON.stringify(S.projects))!==S.sync.hash,hasLocal=S.projects.some(p=>p.tasks.length>0),rv=r.version||0;
+  const isDirty=dirty(),rv=r.version||0;
   if(!r.projectsJson){await pushCore(true);return}
-  if(rv===S.sync.version){if(dirty)await pushCore(false);else{S.sync.last=new Date().toISOString();setSync('ok')}return}
-  if(rv>S.sync.version){
-    if(!dirty||(S.sync.version===0&&!hasLocal)){applyRemote(r);return}
+  if(rv===SY.version){if(isDirty)await pushCore(false);else{SY.last=new Date().toISOString();setSync('ok')}return}
+  if(rv>SY.version){
+    if(!isDirty){applyRemote(r);return}
     SY.pending=r;setSync('conflict');openConflict();return;
   }
   await pushCore(true);
 }
 async function syncRun(kind){
-  if(!syncCfg())return;
+  if(!SESSION||!S)return;
   if(SY.busy){if(kind==='push'){clearTimeout(SY.timer);SY.timer=setTimeout(()=>syncRun('push'),1500)}return}
   SY.busy=true;
   try{
@@ -878,97 +831,102 @@ async function syncRun(kind){
     else if(kind==='push')await pushCore(false);
     else await pullCore();
   }catch(e){
-    if(e&&e.code==='conflict'){setSync('idle');setTimeout(()=>syncRun('pull'),0)}
+    if(e&&e.code==='session'){signOut('expired')}
+    else if(e&&e.code==='conflict'){setSync('idle');setTimeout(()=>syncRun('pull'),0)}
     else setSync('error',errMsg(e));
   }finally{SY.busy=false}
 }
 function scheduleSync(){
-  if(!syncCfg()||SY.status==='conflict')return;
-  if(djb(JSON.stringify(S.projects))===S.sync.hash)return;
+  if(!SESSION||!S||SY.status==='conflict')return;
+  if(!dirty())return;
   clearTimeout(SY.timer);SY.timer=setTimeout(()=>syncRun('push'),1800);
+  const el=$('#syncChip');if(el&&SY.status!=='saving'){el.textContent='Unsaved changes';el.className='muted'}
 }
-function startSync(){
-  clearInterval(SY.poll);clearTimeout(SY.timer);SY.pending=null;
-  if(!syncCfg()){setSync('off');return}
-  setSync('idle');
-  SY.poll=setInterval(()=>{if(S&&syncCfg()&&!U.d&&!SY.busy&&SY.status!=='conflict')syncRun('pull')},60000);
-  syncRun('pull');
+function startSync(fresh){
+  clearInterval(SY.poll);clearTimeout(SY.timer);SY.busy=false;
+  SY.poll=setInterval(()=>{if(S&&SESSION&&!U.d&&!SY.busy&&SY.status!=='conflict')syncRun('pull')},60000);
+  if(fresh)syncRun('force');
 }
-function stopSync(){clearInterval(SY.poll);clearTimeout(SY.timer);SY.pending=null;SY.busy=false;SY.status='off';SY.msg=''}
+function stopSync(){clearInterval(SY.poll);clearTimeout(SY.timer);SY.pending=null;SY.busy=false;SY.status='idle';SY.msg=''}
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible'&&S&&syncCfg()&&!U.d&&!SY.busy&&SY.status!=='conflict')syncRun('pull');
+  if(document.visibilityState==='visible'&&S&&SESSION&&!U.d&&!SY.busy&&SY.status!=='conflict')syncRun('pull');
 });
 function openConflict(){
-  openModal('The sheet and this browser differ',
-    '<p style="margin:0">The sheet has changes made elsewhere, and this browser also has changes that are not in the sheet yet. Pick the version to keep. The other one is replaced.</p>',
+  openModal('The sheet and this page differ',
+    '<p style="margin:0">Someone else changed the sheet, and this page also has changes that are not saved yet. Pick the version to keep. The other one is replaced.</p>',
     '<button class="btn" data-act="syncLater">Decide later</button><button class="btn danger" data-act="syncKeepMine">Keep mine, overwrite the sheet</button><button class="btn primary" data-act="syncUseSheet">Use the sheet version</button>');
 }
-function syncModal(){
-  const c=S.sync||{};
-  openModal('Google Sheet sync',
-    '<p class="hint" style="margin:0">Tasks save to a Google Sheet through a small Apps Script you add to that sheet. Everyone who uses the same web app URL and key shares the same projects and tasks. The sheet tabs are a readable copy; make changes here in the tracker.</p>'+
-    '<label class="f"><span>Web app URL</span><input type="text" id="syUrl" value="'+esc(c.url||'')+'" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></label>'+
-    '<label class="f"><span>Secret key</span><input type="password" id="syKey" value="'+esc(c.key||'')+'" autocomplete="off"></label>'+
-    '<div class="auth-err" id="syErr" role="alert"></div>'+
-    (syncCfg()?'<div><b>Status:</b> '+esc(syncText())+(SY.status==='conflict'?' <button class="btn sm" data-act="syncResolve">Resolve</button>':'')+'</div>':'')+
-    '<details><summary class="strong" style="cursor:pointer">How to set it up</summary><ol style="margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:4px">'+
-    '<li>Open your Google Sheet, then Extensions, then Apps Script.</li>'+
-    '<li>Replace the code with the contents of Code.gs, set your own SECRET at the top, and save.</li>'+
-    '<li>Click Deploy, then New deployment, type Web app. Set Execute as to Me and Who has access to Anyone, then Deploy and approve the permissions.</li>'+
-    '<li>Paste the Web app URL and the same secret above.</li></ol></details>',
-    (syncCfg()?'<button class="btn danger" data-act="syncOff">Disconnect</button><button class="btn" data-act="syncNow">Sync now</button>':'<button class="btn" data-act="closeModal">Cancel</button>')+'<button class="btn primary" data-act="syncSave">Save and connect</button>');
+
+/* ---------- Jira details (fetched through the Apps Script) ---------- */
+const JIRA={state:{},tried:{}};
+function parseJira(input){
+  const v=String(input||'').trim();if(!v)return {};
+  const m=v.match(/(?:\/browse\/|selectedIssue=|issueKey=|[?&]key=)([A-Za-z][A-Za-z0-9_]*-\d+)/i)||v.match(/\b([A-Za-z][A-Za-z0-9_]*-\d+)\b/);
+  if(!m)return {};
+  let base='';try{const u=new URL(v);if(/^https?:$/.test(u.protocol))base=u.origin+'/browse'}catch(e){}
+  return {key:m[1].toUpperCase(),base:base};
+}
+const fixIso=d=>String(d||'').replace(/([+-]\d{2})(\d{2})$/,'$1:$2');
+function jiraSections(t,p){
+  const jd=t.jd,url=jiraUrl(p,t.jira),st=JIRA.state[t.id]||{};
+  const head='<div class="sec"><h3>Jira details<span style="display:flex;gap:6px">'+(url?'<a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">Open in Jira</a>':'')+(t.jira?'<button class="btn sm" data-act="jiraRefresh"'+(st.s==='loading'?' disabled':'')+'>Refresh from Jira</button>':'')+'</span></h3>';
+  if(!t.jira)return head+'<p class="hint">Paste a Jira ticket link or key (for example AAVM-14889) into the Jira field above. The details load automatically.</p></div>';
+  const line=st.s==='loading'?'Fetching from Jira...':st.s==='error'?st.msg:(jd.fetchedAt?'Fetched from Jira '+fmtDT(jd.fetchedAt)+'.':'Not fetched yet.');
+  const ro=(l,v,full)=>'<div class="f'+(full?' full':'')+'"><span>'+esc(l)+'</span><div class="rov">'+(v?esc(v):'-')+'</div></div>';
+  const subs=jd.subtasks.map(s=>{
+    const su=jiraUrl(p,s.key),sd=statusDef(s.status);
+    return '<div class="urow"><span>'+(su?'<a class="jkey" href="'+esc(su)+'" target="_blank" rel="noopener">'+esc(s.key)+'</a>':'<b>'+esc(s.key)+'</b>')+' '+esc(s.summary)+(s.assignee?' <span class="muted">('+esc(s.assignee)+')</span>':'')+'</span><span class="badge" style="--c:var('+sd.v+')">'+esc(s.statusName||s.status)+'</span></div>';
+  }).join('');
+  const cms=jd.comments.map(c=>'<div class="cmt"><div class="cmeta"><b>'+esc(c.author||'Unknown')+'</b><span>'+fmtDT(c.date)+'</span></div><div class="ctext">'+esc(c.text)+'</div></div>').join('');
+  return head+'<p class="hint'+(st.s==='error'?' late':'')+'" style="margin-bottom:12px">'+esc(line)+'</p><div class="grid2">'+
+    ro('Summary',jd.summary,1)+ro('Issue type',jd.type)+ro('Priority',jd.priority)+ro('Jira status',jd.statusName||jd.status)+
+    ro('Sprint or fix version',jd.sprint)+ro('Assignee',jd.assignee)+ro('Reporter',jd.reporter)+ro('Created',fmtDate(jd.created))+
+    ro('Updated',fmtDate(jd.updated))+ro('Jira due date',fmtDate(jd.due))+ro('Labels',jd.labels,1)+ro('Description',jd.description,1)+'</div></div>'+
+    '<div class="sec"><h3>Subtasks <span class="muted" style="font:500 13px Instrument Sans,sans-serif">'+jd.subtasks.length+'</span></h3>'+(subs||'<p class="hint">No subtasks on this ticket.</p>')+'</div>'+
+    '<div class="sec"><h3>Jira comments <span class="muted" style="font:500 13px Instrument Sans,sans-serif">'+jd.comments.length+'</span></h3>'+(cms||'<p class="hint">No comments on this ticket.</p>')+'</div>';
+}
+function renderJiraSec(){const el=$('#jirasec');if(el&&U.d)el.innerHTML=jiraSections(U.d.t,cur())}
+async function loadJira(t,key){
+  if(!SESSION)return;
+  if(JIRA.state[t.id]&&JIRA.state[t.id].s==='loading')return;
+  JIRA.state[t.id]={s:'loading'};JIRA.tried[t.id]=Date.now();
+  if(U.d&&U.d.t===t)renderJiraSec();
+  try{
+    const r=await sheetCall({action:'jira',key:key});
+    if(t.jira!==key){JIRA.state[t.id]={};return}
+    const i=r.issue,j=t.jd;
+    Object.assign(j,{summary:i.summary,type:i.type,priority:i.priority,status:i.status,statusName:i.statusName,assignee:i.assignee,reporter:i.reporter,created:i.created,updated:i.updated,due:i.due,sprint:i.sprint,labels:i.labels,description:i.description});
+    j.comments=(i.comments||[]).map(c=>({id:c.id||uid(),author:c.author,date:fixIso(c.date),text:c.text}));
+    j.subtasks=(i.subtasks||[]).map(x=>({id:uid(),key:x.key,summary:x.summary,status:x.status,statusName:x.statusName,assignee:x.assignee}));
+    j.fetchedAt=new Date().toISOString();
+    const fills={feature:i.summary,dueDate:i.due};
+    Object.keys(fills).forEach(k=>{
+      if(!fills[k]||t[k]||!cur().columns.some(c=>c.key===k))return;
+      t[k]=fills[k];
+      const inp=document.querySelector('[data-bind="'+k+'"]');if(inp&&(document.activeElement!==inp||!inp.value))inp.value=fills[k];
+      if(k==='feature'){const h=$('#dtitle');if(h)h.textContent=fills[k]}
+    });
+    JIRA.state[t.id]={s:'ok'};
+    if(cur().tasks.includes(t))persist();
+  }catch(e){
+    if(e&&e.code==='session'){signOut('expired');return}
+    JIRA.state[t.id]={s:'error',msg:e&&e.code==='network'?'Could not reach the sheet.':errMsg(e)};
+  }
+  if(U.d&&U.d.t===t)renderJiraSec();
+  render();
 }
 
 /* ---------- actions ---------- */
 function afterTaskChange(){persist();render()}
 const ACTS={
-  setProject(b){S.activeId=b.dataset.id;U.status='';U.dl='';U.q='';U.sortKey='sl';U.sortDir=1;persist();render()},
+  setProject(b){S.activeId=b.dataset.id;try{localStorage.setItem('tt-active',S.activeId)}catch(e){}U.status='';U.dl='';U.q='';U.sortKey='sl';U.sortDir=1;persist();render()},
   setTheme(b){S.theme=b.dataset.id;applyTheme(S.theme);persist();renderSide()},
   signOut(){signOut()},
-  openSync(){syncModal()},
-  async syncSave(){
-    const url=$('#syUrl').value.trim(),key=$('#syKey').value.trim();
-    if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)){toast('That does not look like a web app URL. It should end in /exec.');return}
-    if(!key){toast('Enter the secret key from your script.');return}
-    const prev=S.sync;
-    S.sync={url:url,key:key,version:0,hash:'',last:''};
-    setSync('loading');
-    try{await sheetCall({action:'ping'})}
-    catch(e){
-      S.sync=prev||null;setSync(prev?'idle':'off');
-      const msg=e&&e.code==='network'?await probeMsg(url):errMsg(e);
-      const box=$('#syErr');if(box)box.textContent=msg;else toast(msg);
-      return;
-    }
-    persist(true);closeModal();startSync();toast('Connected. Syncing...');
-  },
-  syncNow(){closeModal();syncRun('pull')},
+  syncNow(){syncRun('pull')},
   syncResolve(){openConflict()},
-  syncOff(b){twoStep(b,()=>{stopSync();S.sync=null;persist(true);closeModal();render();toast('Disconnected. Your data stays in the sheet.')},'Click again to disconnect')},
   syncUseSheet(){closeModal();if(SY.pending){const r=SY.pending;SY.pending=null;applyRemote(r)}},
   syncKeepMine(){closeModal();SY.pending=null;setSync('idle');syncRun('force')},
   syncLater(){closeModal()},
-  openUsers(){usersModal()},
-  async changePw(){
-    const a=$('#npw').value,b=$('#npw2').value;
-    if(a.length<8){toast('Use at least 8 characters.');return}
-    if(a!==b){toast('The passwords do not match.');return}
-    const salt=crypto.getRandomValues(new Uint8Array(16)),key=await deriveKey(a,salt);
-    SESSION.key=key;SESSION.salt=salt;
-    const u=getUsers();u[SESSION.name].salt=b64(salt);setUsers(u);
-    persist();await saveChain;closeModal();toast('Password changed');
-  },
-  async addUser(){
-    const name=$('#nuName').value,pw=$('#nuPw').value;
-    if(!normName(name)){toast('Enter a username.');return}
-    if(pw.length<8){toast('Use at least 8 characters for the password.');return}
-    if(getUsers()[normName(name)]){toast('That username is already taken.');return}
-    await makeAccount(name,pw,false,emptyWorkspace());
-    usersModal();toast('Added '+name.trim());
-  },
-  delUser(b){twoStep(b,()=>{
-    const n=b.dataset.name,u=getUsers();delete u[n];setUsers(u);localStorage.removeItem(dkey(n));usersModal();toast('User removed');
-  },'Confirm')},
   newProject(){projectModal(true)},
   openSettings(){projectModal(false)},
   createProject(){
@@ -992,15 +950,7 @@ const ACTS={
   },
   closeDrawer(){closeDrawer();render()},
   delTask(b){twoStep(b,()=>{const p=cur();p.tasks=p.tasks.filter(t=>t.id!==U.d.t.id);U.d=null;persist();renderDrawer();render();toast('Task deleted')},'Click again to delete')},
-  addSub(){U.d.t.jd.subtasks.push({id:uid(),key:'',summary:'',status:'To Do',assignee:''});if(!U.d.isNew)persist();renderDrawer();render()},
-  delSub(b){U.d.t.jd.subtasks.splice(+b.dataset.i,1);if(!U.d.isNew)persist();renderDrawer();render()},
-  addCmt(){
-    const text=$('#cText').value.trim(),author=$('#cAuthor').value.trim();
-    if(!text){toast('Write a comment first.');return}
-    S.me=author;U.d.t.jd.comments.push({id:uid(),author:author,date:new Date().toISOString(),text:text});
-    persist();renderDrawer();render();
-  },
-  delCmt(b){U.d.t.jd.comments.splice(+b.dataset.i,1);if(!U.d.isNew)persist();renderDrawer();render()},
+  jiraRefresh(){const t=U.d&&U.d.t;if(t&&t.jira)loadJira(t,t.jira)},
   fstatus(b){const v=b.dataset.v;U.status=(U.status===v?'':v);render()},
   fdl(b){const v=b.dataset.v;U.dl=(U.dl===v?'':v);render()},
   clearFilters(){U.status='';U.dl='';U.q='';render()},
@@ -1054,6 +1004,27 @@ document.addEventListener('keydown',e=>{
 let renderT;
 function onField(e){
   const el=e.target;
+  if(el.dataset&&el.dataset.bind==='jira'&&U.d){
+    const raw=el.value,pasted=e.type==='input'&&/^https?:\/\//i.test(raw.trim())&&/\/browse\/|selectedIssue=|issueKey=|[?&]key=/i.test(raw);
+    if(e.type==='change'||pasted){
+      const t=U.d.t,pr=parseJira(raw);
+      if(!pr.key){
+        if(raw.trim())toast('Could not find a Jira key like ABC-123 in that.');
+        t.jira=raw.trim();
+        if(!U.d.isNew)persist();
+        render();renderJiraSec();return;
+      }
+      el.value=pr.key;
+      const changed=t.jira!==pr.key||!t.jd.fetchedAt;
+      if(t.jira!==pr.key)t.jd=blankJd();
+      t.jira=pr.key;
+      const p=cur();if(pr.base&&!p.jiraBase)p.jiraBase=pr.base;
+      if(!U.d.isNew)persist();
+      render();renderJiraSec();
+      if(changed)loadJira(t,pr.key);
+      return;
+    }
+  }
   if(el.dataset&&el.dataset.bind&&U.d){
     let v=el.value;
     if(el.dataset.num)v=v===''?'':Number(v);
@@ -1091,13 +1062,13 @@ $('#importFile').addEventListener('change',e=>{
       if(!d||!Array.isArray(d.projects)||!d.projects.length)throw new Error('bad');
       d.projects.forEach(p=>{p.columns=p.columns&&p.columns.length?p.columns:defaultCols();p.tasks=(p.tasks||[]).map(ensureTask);p.jiraBase=p.jiraBase||'';p.id=p.id||uid()});
       d.activeId=d.projects.some(p=>p.id===d.activeId)?d.activeId:d.projects[0].id;
-      d.theme=S.theme;d.sync=S.sync;initState(d);persist();closeModal();closeDrawer();render();toast('Backup restored');
+      S.projects=d.projects;S.activeId=d.activeId;persist();closeModal();closeDrawer();render();toast('Backup restored. Saving it to the sheet.');
     }catch(err){toast('That file is not a valid backup.')}
   };
   r.readAsText(f);e.target.value='';
 });
 
-showAuth();
+boot();
 })();
 </script>
 </body>
