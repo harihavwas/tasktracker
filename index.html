@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Task tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef1f5;--surface:#ffffff;--surface2:#f5f7f9;--text:#15202b;--muted:#566677;--line:#d6dde5;
+  --accent:#0f766e;--accent-ink:#ffffff;--danger:#c0392b;--shadow:0 14px 44px rgba(15,32,50,.22);--bw:1px;
+  --s-todo:#76828f;--s-prog:#2f6fed;--s-review:#8a4fe3;--s-block:#d1423a;--s-done:#1c9566;
+  color-scheme:light;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1317;--surface:#161d24;--surface2:#1c252e;--text:#e7edf3;--muted:#92a1b0;--line:#2b3743;
+    --accent:#4fd1c5;--accent-ink:#06211e;--danger:#ff7a6e;--shadow:0 14px 44px rgba(0,0,0,.55);
+    --s-todo:#8e9aa7;--s-prog:#5b95ff;--s-review:#b48cf5;--s-block:#ff6f64;--s-done:#3ccf93;color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1317;--surface:#161d24;--surface2:#1c252e;--text:#e7edf3;--muted:#92a1b0;--line:#2b3743;
+  --accent:#4fd1c5;--accent-ink:#06211e;--danger:#ff7a6e;--shadow:0 14px 44px rgba(0,0,0,.55);--bw:1px;
+  --s-todo:#8e9aa7;--s-prog:#5b95ff;--s-review:#b48cf5;--s-block:#ff6f64;--s-done:#3ccf93;color-scheme:dark;
+}
+:root[data-theme="contrast"]{
+  --bg:#000000;--surface:#000000;--surface2:#0d0d0d;--text:#ffffff;--muted:#e0e0e0;--line:#ffffff;
+  --accent:#ffe600;--accent-ink:#000000;--danger:#ff6b6b;--shadow:0 0 0 2px #fff;--bw:2px;
+  --s-todo:#d0d0d0;--s-prog:#55aaff;--s-review:#e69cff;--s-block:#ff7b7b;--s-done:#4dff88;color-scheme:dark;
+}
+:root[data-theme="ocean"]{
+  --bg:#e3eff6;--surface:#fafdff;--surface2:#eef6fb;--text:#0a2a3d;--muted:#4b6a7e;--line:#b7d3e3;
+  --accent:#0a67ad;--accent-ink:#ffffff;--danger:#b8392c;--shadow:0 14px 44px rgba(10,70,110,.25);--bw:1px;
+  --s-todo:#6f8797;--s-prog:#0a67ad;--s-review:#7a4fc9;--s-block:#c8402f;--s-done:#12906a;color-scheme:light;
+}
+:root[data-theme="forest"]{
+  --bg:#17241c;--surface:#1f3126;--surface2:#263b2e;--text:#e8f0e4;--muted:#a3b9a6;--line:#37523f;
+  --accent:#c9dc6a;--accent-ink:#1a2a10;--danger:#ff8a78;--shadow:0 14px 44px rgba(0,0,0,.5);--bw:1px;
+  --s-todo:#9bb09e;--s-prog:#79b8ff;--s-review:#c9a2f2;--s-block:#ff8a78;--s-done:#7fe0a5;color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{min-height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.45 "Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:"Bricolage Grotesque","Instrument Sans",system-ui,sans-serif;margin:0;letter-spacing:-.01em}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+
+[hidden]{display:none!important}
+.locked .app{display:none}
+.auth{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
+.auth-card{width:min(400px,100%);background:var(--surface);border:var(--bw) solid var(--line);border-radius:16px;padding:28px 26px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:14px}
+.auth-card h1{font-size:28px;line-height:1.1}
+.auth-card p{margin:0;color:var(--muted)}
+.auth-err{color:var(--danger);min-height:20px;font-weight:500}
+.who{display:flex;flex-direction:column;gap:8px;padding:12px 6px 0;border-top:var(--bw) solid var(--line);font-size:13px}
+.who div{display:flex;gap:6px;flex-wrap:wrap}
+.urow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:var(--bw) solid var(--line)}
+.app{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:env(safe-area-inset-top,0px);align-self:start;max-height:100vh;overflow:auto;padding:22px 16px;border-right:var(--bw) solid var(--line);background:var(--surface);display:flex;flex-direction:column;gap:22px}
+.brand{font:700 20px "Bricolage Grotesque",sans-serif;padding:0 6px}
+.side-h{display:flex;align-items:center;justify-content:space-between;padding:0 6px 8px;color:var(--muted);font-weight:600}
+.plist{display:flex;flex-direction:column;gap:3px}
+.proj{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;text-align:left;padding:9px 10px;border:var(--bw) solid transparent;background:none;border-radius:9px}
+.proj:hover{background:var(--surface2)}
+.proj.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.proj .n{font-size:12px;opacity:.8}
+.palette{display:flex;gap:10px;flex-wrap:wrap;padding:0 6px;margin-top:auto}
+.pal{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);padding:0}
+.pal.on{border-color:var(--text);box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--accent)}
+.themes{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.theme{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:9px;border:var(--bw) solid var(--line);background:var(--surface2);text-align:left}
+.theme.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.sw{width:18px;height:18px;border-radius:50%;border:1px solid rgba(128,128,128,.5);flex:none}
+
+.main{padding:26px clamp(14px,3vw,34px) 60px;min-width:0}
+.head{display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;align-items:flex-end;margin-bottom:20px}
+.head h1{font-size:clamp(24px,3.4vw,34px);line-height:1.1}
+.head p{margin:6px 0 0;color:var(--muted)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;border:var(--bw) solid var(--line);background:var(--surface);font-weight:500}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.btn.armed{background:var(--danger);color:#fff;border-color:var(--danger)}
+.btn.sm,.mini{padding:4px 10px;font-size:12.5px;border-radius:7px}
+.mini{border:var(--bw) solid var(--line);background:var(--surface2)}
+.icon-btn{border:0;background:none;padding:4px 8px;border-radius:6px;font-size:18px;line-height:1;color:var(--muted)}
+.icon-btn:hover{background:var(--surface2);color:var(--text)}
+
+.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
+.card{background:var(--surface);border:var(--bw) solid var(--line);border-radius:14px;padding:16px 18px;min-width:0}
+.card h3{font-size:16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card select{max-width:150px}
+.donut-wrap{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.donut{width:132px;height:132px;flex:none}
+.donut .seg{cursor:pointer;transition:opacity .15s}
+.donut .seg:hover{opacity:.75}
+.legend{flex:1;min-width:130px;display:flex;flex-direction:column;gap:2px}
+.lg{display:flex;align-items:center;gap:8px;padding:3px 6px;border:0;background:none;border-radius:6px;text-align:left;width:100%}
+.lg:hover{background:var(--surface2)}
+.lg b{margin-left:auto}
+.dot{width:10px;height:10px;border-radius:3px;flex:none;background:var(--c)}
+.gbar{display:grid;grid-template-columns:minmax(60px,110px) 1fr 24px;gap:8px;align-items:center;margin:7px 0}
+.glabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gtrack{background:var(--surface2);border-radius:6px;height:16px}
+.gfill{height:100%;display:flex;border-radius:6px;overflow:hidden;min-width:6px}
+.gfill i{display:block}
+.gnum{text-align:right;font-weight:600}
+.dl{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:var(--bw) solid var(--line);border-radius:10px;background:var(--surface2);margin-bottom:7px;text-align:left}
+.dl.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.dl b{font:700 20px "Bricolage Grotesque",sans-serif;min-width:30px}
+.dl.bad b{color:var(--danger)}
+.muted{color:var(--muted)}
+
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.search{flex:1 1 220px;max-width:340px;padding:8px 12px;border-radius:8px;border:var(--bw) solid var(--line);background:var(--surface)}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;border:var(--bw) solid var(--line);background:var(--surface)}
+.chip.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.chip b{font-weight:600;opacity:.8}
+
+.tablewrap{background:var(--surface);border:var(--bw) solid var(--line);border-radius:14px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:760px}
+th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:var(--bw) solid var(--line)}
+th{font-weight:600;color:var(--muted);white-space:nowrap;background:var(--surface2);cursor:pointer;user-select:none}
+th:hover{color:var(--text)}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--surface2)}
+tbody tr:last-child td{border-bottom:0}
+.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-width:200px;max-width:340px}
+.strong{font-weight:600}
+.late{color:var(--danger);font-weight:600}
+.jkey{color:var(--accent);font-weight:600;text-decoration:none;border-bottom:1px solid currentColor}
+:root[data-theme="light"] .jkey,:root:not([data-theme]) .jkey{color:#0b5f58}
+.jmeta{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.st{appearance:none;-webkit-appearance:none;border:var(--bw) solid var(--c);background:color-mix(in srgb,var(--c) 15%,var(--surface));padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--text)}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;border:var(--bw) solid var(--c);background:color-mix(in srgb,var(--c) 15%,var(--surface));font-size:12.5px;font-weight:600}
+.empty{padding:50px 20px;text-align:center;color:var(--muted)}
+.empty h3{color:var(--text);margin-bottom:6px}
+
+/* form controls */
+input[type=text],input[type=number],input[type=date],select,textarea,.search{background:var(--surface);border:var(--bw) solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+select{padding-right:6px}
+textarea{resize:vertical;min-height:72px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f>span{color:var(--muted);font-weight:500;font-size:13px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.full{grid-column:1/-1}
+
+/* drawer + modal */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(640px,100%);background:var(--surface);z-index:41;display:flex;flex-direction:column;box-shadow:var(--shadow);border-left:var(--bw) solid var(--line);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);animation:slide .22s ease-out}
+@keyframes slide{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+.dhead{display:flex;gap:12px;justify-content:space-between;align-items:flex-start;padding:18px 22px;border-bottom:var(--bw) solid var(--line)}
+.dhead h2{font-size:22px;line-height:1.2}
+.dbody{flex:1;overflow:auto;padding:18px 22px 28px}
+.dfoot{display:flex;gap:8px;justify-content:space-between;align-items:center;padding:12px 22px;border-top:var(--bw) solid var(--line);background:var(--surface2)}
+.sec{margin-top:26px}
+.sec:first-child{margin-top:0}
+.sec h3{font-size:17px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.hint{color:var(--muted);font-size:12.5px;margin:0 0 12px}
+.sub{display:grid;grid-template-columns:90px 1fr 120px 110px 30px;gap:6px;align-items:center;margin-bottom:6px}
+.sub.h{color:var(--muted);font-size:12.5px;font-weight:500}
+.cmt{padding:10px 12px;border:var(--bw) solid var(--line);border-radius:10px;background:var(--surface2);margin-bottom:8px}
+.cmeta{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12.5px;margin-bottom:4px}
+.cmeta b{color:var(--text)}
+.cmeta .icon-btn{margin-left:auto;font-size:15px}
+.ctext{white-space:pre-wrap;overflow-wrap:anywhere}
+.modal{position:fixed;z-index:50;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;background:var(--surface);border:var(--bw) solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.mhead{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:var(--bw) solid var(--line)}
+.mhead h2{font-size:20px}
+.mbody{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.mfoot{display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;border-top:var(--bw) solid var(--line);background:var(--surface2);border-radius:0 0 14px 14px}
+.colrow{display:grid;grid-template-columns:24px 1fr 86px auto;gap:8px;align-items:center}
+.colrow .t{color:var(--muted);font-size:12.5px}
+.rowbtns{display:flex;gap:2px}
+.check{display:flex;gap:8px;align-items:center}
+.check input{width:auto}
+.radio{display:flex;gap:18px;flex-wrap:wrap}
+.toast{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 16px;border-radius:10px;z-index:60;opacity:0;pointer-events:none;transition:opacity .2s;max-width:calc(100% - 30px)}
+.toast.show{opacity:1}
+body.lock{overflow:hidden}
+
+@media (max-width:980px){.summary{grid-template-columns:1fr 1fr}}
+@media (max-width:860px){
+  .app{display:block}
+  .side{position:static;max-height:none;border-right:0;border-bottom:var(--bw) solid var(--line);padding:14px}
+  .plist{flex-direction:row;flex-wrap:wrap}
+  .proj{width:auto}
+  .summary{grid-template-columns:1fr}
+  .sub{grid-template-columns:1fr 1fr}
+  .sub.h{display:none}
+  .grid2{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){.drawer{animation:none}.toast{transition:none}}
+</style>
+</head>
+<body class="locked">
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="head" id="head"></header>
+    <section class="summary" id="summary"></section>
+    <section class="filters" id="filters"></section>
+    <section class="tablewrap" id="tablewrap"></section>
+  </main>
+</div>
+<div class="auth" id="auth" hidden></div>
+<div id="drawer"></div>
+<div id="modal"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* ---------- constants ---------- */
+const STATUSES=[
+  {id:'To Do',v:'--s-todo',rgb:[118,130,143]},
+  {id:'In Progress',v:'--s-prog',rgb:[47,111,237]},
+  {id:'In Review',v:'--s-review',rgb:[138,79,227]},
+  {id:'Blocked',v:'--s-block',rgb:[209,66,58]},
+  {id:'Done',v:'--s-done',rgb:[28,149,102]}
+];
+const STATUS_IDS=STATUSES.map(s=>s.id);
+const PRIORITIES=['Highest','High','Medium','Low','Lowest'];
+const ISSUE_TYPES=['Story','Task','Bug','Epic','Improvement','Sub-task'];
+const THEMES=[
+  {id:'light',name:'Light',c:['#eef1f5','#0f766e']},
+  {id:'dark',name:'Dark',c:['#0e1317','#4fd1c5']},
+  {id:'contrast',name:'High contrast',c:['#000000','#ffe600']},
+  {id:'ocean',name:'Ocean',c:['#e3eff6','#0a67ad']},
+  {id:'forest',name:'Forest',c:['#17241c','#c9dc6a']}
+];
+const COL_TYPES=[['text','Text'],['longtext','Long text'],['number','Number'],['date','Date'],['select','Dropdown']];
+const KEY='task-tracker-v1';
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const uid=()=>Math.random().toString(36).slice(2,9);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+const ymd=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const today=()=>ymd(new Date());
+const addDays=(s,n)=>{const [y,m,d]=s.split('-').map(Number);return ymd(new Date(y,m-1,d+n))};
+const fmtDate=s=>{if(!s)return '';const [y,m,d]=String(s).split('-').map(Number);if(!y||!m||!d)return String(s);return new Date(y,m-1,d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})};
+const fmtDT=iso=>{const d=new Date(iso);return isNaN(d)?'':d.toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})};
+const slug=s=>String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'tasks';
+const statusDef=id=>STATUSES.find(s=>s.id===id)||STATUSES[0];
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+/* ---------- data ---------- */
+const defaultCols=()=>[
+  {key:'sl',label:'SL',type:'number',builtin:true,visible:true},
+  {key:'feature',label:'Feature',type:'text',builtin:true,visible:true},
+  {key:'description',label:'Description',type:'longtext',builtin:true,visible:true},
+  {key:'status',label:'Status',type:'status',builtin:true,visible:true},
+  {key:'module',label:'Module',type:'text',builtin:true,visible:true},
+  {key:'spoc',label:'Spoc',type:'text',builtin:true,visible:true},
+  {key:'devSpoc',label:'Dev Spoc',type:'text',builtin:true,visible:true},
+  {key:'jira',label:'Jira',type:'jira',builtin:true,visible:true},
+  {key:'requestDate',label:'Request date',type:'date',builtin:true,visible:true},
+  {key:'dueDate',label:'Due date',type:'date',builtin:true,visible:true},
+  {key:'comments',label:'Comments',type:'longtext',builtin:true,visible:true}
+];
+const blankJd=()=>({summary:'',type:'Task',priority:'Medium',status:'To Do',assignee:'',reporter:'',created:'',updated:'',due:'',sprint:'',labels:'',description:'',comments:[],subtasks:[]});
+function ensureTask(t){
+  t.id=t.id||uid();
+  t.jd=Object.assign(blankJd(),t.jd||{});
+  if(!Array.isArray(t.jd.comments))t.jd.comments=[];
+  if(!Array.isArray(t.jd.subtasks))t.jd.subtasks=[];
+  if(!STATUS_IDS.includes(t.status))t.status='To Do';
+  return t;
+}
+function seed(){
+  const mk=(o,jd)=>ensureTask(Object.assign({id:uid()},o,{jd:Object.assign(blankJd(),jd)}));
+  const t=today();
+  const tasks=[
+    mk({sl:1,feature:'Bulk invoice upload',description:'Let finance upload up to 500 invoices from a CSV and validate them before import.',status:'In Progress',module:'Billing',spoc:'Alex',devSpoc:'Sam',jira:'BILL-142',requestDate:addDays(t,-20),dueDate:addDays(t,6),comments:'Waiting on UAT sign-off from finance.'},
+       {summary:'Bulk invoice upload via CSV',type:'Story',priority:'High',status:'In Progress',assignee:'Sam',reporter:'Alex',created:addDays(t,-20),updated:addDays(t,-1),due:addDays(t,6),sprint:'Sprint 24',labels:'billing, import',description:'CSV template, row-level validation, error report download.',
+        comments:[{id:uid(),author:'Alex',date:new Date(Date.now()-5*864e5).toISOString(),text:'Finance wants an error report per row.'},{id:uid(),author:'Sam',date:new Date(Date.now()-86400000).toISOString(),text:'Validation done, working on the report download.'}],
+        subtasks:[{id:uid(),key:'BILL-143',summary:'CSV template',status:'Done',assignee:'Sam'},{id:uid(),key:'BILL-144',summary:'Row validation',status:'Done',assignee:'Sam'},{id:uid(),key:'BILL-145',summary:'Error report download',status:'In Progress',assignee:'Sam'}]}),
+    mk({sl:2,feature:'Role-based dashboard',description:'Different landing dashboards for managers and agents.',status:'Done',module:'Dashboard',spoc:'Alex',devSpoc:'Jo',jira:'DASH-77',requestDate:addDays(t,-45),dueDate:addDays(t,-8),comments:'Released.'},
+       {summary:'Role-based dashboard',type:'Story',priority:'Medium',status:'Done',assignee:'Jo',reporter:'Alex',created:addDays(t,-45),updated:addDays(t,-8),due:addDays(t,-8),sprint:'Sprint 22',labels:'dashboard'}),
+    mk({sl:3,feature:'Fix timezone drift in reports',description:'Scheduled reports show the previous day for users east of UTC.',status:'Blocked',module:'Reports',spoc:'Priya',devSpoc:'Sam',jira:'REP-310',requestDate:addDays(t,-12),dueDate:addDays(t,-2),comments:'Blocked on infra change.'},
+       {summary:'Reports use server timezone',type:'Bug',priority:'Highest',status:'Blocked',assignee:'Sam',reporter:'Priya',created:addDays(t,-12),updated:addDays(t,-3),due:addDays(t,-2),sprint:'Sprint 24',labels:'bug, reports',
+        comments:[{id:uid(),author:'Sam',date:new Date(Date.now()-3*864e5).toISOString(),text:'Needs the config flag from the platform team.'}]}),
+    mk({sl:4,feature:'SSO login',description:'Support SAML sign-in for enterprise customers.',status:'To Do',module:'Auth',spoc:'Priya',devSpoc:'Jo',jira:'AUTH-9',requestDate:addDays(t,-3),dueDate:addDays(t,30),comments:''},
+       {summary:'SAML SSO',type:'Epic',priority:'Medium',status:'To Do',assignee:'Jo',reporter:'Priya',created:addDays(t,-3),due:addDays(t,30),sprint:'Backlog'})
+  ];
+  return {id:uid(),name:'Sample project',jiraBase:'',columns:defaultCols(),tasks:tasks};
+}
+let S=null,SESSION=null;
+function initState(d){
+  d.projects.forEach(p=>{p.columns=p.columns&&p.columns.length?p.columns:defaultCols();p.tasks=(p.tasks||[]).map(ensureTask);p.jiraBase=p.jiraBase||'';p.id=p.id||uid()});
+  if(!d.projects.some(p=>p.id===d.activeId))d.activeId=d.projects[0].id;
+  if(!d.theme)d.theme=sysTheme();
+  d.me=d.me||'';
+  S=d;
+}
+function sysTheme(){return (window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'}
+function applyTheme(t){document.documentElement.dataset.theme=t;try{localStorage.setItem('tt-theme',t)}catch(e){}}
+
+/* ---------- accounts and encryption (this browser only) ---------- */
+const TE=new TextEncoder(),TD=new TextDecoder();
+const b64=buf=>{const u=new Uint8Array(buf);let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)};
+const unb64=str=>Uint8Array.from(atob(str),c=>c.charCodeAt(0));
+async function deriveKey(pw,salt){
+  const m=await crypto.subtle.importKey('raw',TE.encode(pw),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:250000,hash:'SHA-256'},m,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+}
+async function encStr(key,str){const iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,TE.encode(str));return JSON.stringify({iv:b64(iv),ct:b64(ct)})}
+async function decStr(key,str){const o=JSON.parse(str);const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(o.iv)},key,unb64(o.ct));return TD.decode(pt)}
+const USERS_KEY='tt-users';
+const getUsers=()=>{try{return JSON.parse(localStorage.getItem(USERS_KEY))||{}}catch(e){return {}}};
+const setUsers=u=>localStorage.setItem(USERS_KEY,JSON.stringify(u));
+const dkey=n=>'tt-data-'+n;
+const normName=n=>String(n||'').trim().toLowerCase();
+function emptyWorkspace(){const p={id:uid(),name:'My project',jiraBase:'',columns:defaultCols(),tasks:[]};return {projects:[p],activeId:p.id,theme:sysTheme(),me:''}}
+async function makeAccount(label,pw,admin,ws){
+  const name=normName(label),salt=crypto.getRandomValues(new Uint8Array(16)),key=await deriveKey(pw,salt);
+  localStorage.setItem(dkey(name),await encStr(key,JSON.stringify(ws)));
+  const u=getUsers();u[name]={label:String(label).trim(),salt:b64(salt),admin:!!admin};setUsers(u);
+  return {name:name,key:key,salt:salt,label:String(label).trim(),admin:!!admin};
+}
+let saveChain=Promise.resolve();
+function persist(noSync){
+  if(!SESSION||!S)return;
+  const snap=JSON.stringify(S),key=SESSION.key,k=dkey(SESSION.name);
+  saveChain=saveChain.then(async()=>{try{localStorage.setItem(k,await encStr(key,snap))}catch(e){}});
+  if(noSync!==true)scheduleSync();
+}
+let failN=0,lockUntil=0;
+async function doLogin(label,pw){
+  if(Date.now()<lockUntil)throw {code:'locked'};
+  const name=normName(label),u=getUsers()[name];
+  try{
+    if(!u)throw 0;
+    const salt=unb64(u.salt),key=await deriveKey(pw,salt);
+    const data=JSON.parse(await decStr(key,localStorage.getItem(dkey(name))));
+    failN=0;SESSION={name:name,key:key,salt:salt,label:u.label,admin:!!u.admin};initState(data);
+  }catch(e){
+    failN++;if(failN>=5){lockUntil=Date.now()+30000;failN=0}
+    throw {code:'bad'};
+  }
+}
+let idleT;
+function resetIdle(){clearTimeout(idleT);if(SESSION)idleT=setTimeout(()=>signOut(true),15*60*1000)}
+['click','keydown','mousemove','touchstart'].forEach(ev=>document.addEventListener(ev,resetIdle,{passive:true}));
+function signOut(auto){
+  clearTimeout(idleT);clearTimeout(renderT);stopSync();
+  const wait=saveChain;
+  SESSION=null;S=null;U.d=null;U.status='';U.dl='';U.q='';
+  $('#drawer').innerHTML='';$('#modal').innerHTML='';
+  document.body.classList.remove('lock');document.body.classList.add('locked');
+  wait.then(showAuth);
+  if(auto===true)toast('Signed out after 15 minutes of inactivity.');
+}
+function showAuth(){
+  const el=$('#auth'),users=getUsers(),first=!Object.keys(users).length;
+  el.hidden=false;
+  try{applyTheme(localStorage.getItem('tt-theme')||sysTheme())}catch(e){}
+  if(!(window.crypto&&crypto.subtle)){el.innerHTML='<div class="auth-card"><h1>Task tracker</h1><p>This page needs a secure (https) connection to sign you in.</p></div>';return}
+  el.innerHTML='<form class="auth-card" id="authForm" autocomplete="on">'+
+    '<h1>'+(first?'Create the admin account':'Sign in')+'</h1>'+
+    '<p>'+(first?'This first account can add other users. Choose a password you will remember: it protects your data and cannot be recovered.':'Enter your username and password to open the tracker.')+'</p>'+
+    '<label class="f"><span>Username</span><input type="text" id="aUser" autocomplete="username" required></label>'+
+    '<label class="f"><span>Password</span><input type="password" id="aPass" autocomplete="'+(first?'new-password':'current-password')+'" required></label>'+
+    (first?'<label class="f"><span>Confirm password</span><input type="password" id="aPass2" autocomplete="new-password" required></label>':'')+
+    '<div class="auth-err" id="aErr" role="alert"></div>'+
+    '<button class="btn primary" type="submit" id="aBtn" style="justify-content:center">'+(first?'Create account':'Sign in')+'</button></form>';
+  $('#aUser').focus();
+  $('#authForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const user=$('#aUser').value,pw=$('#aPass').value,err=$('#aErr'),btn=$('#aBtn');
+    err.textContent='';
+    if(first){
+      if(!normName(user)){err.textContent='Enter a username.';return}
+      if(pw.length<8){err.textContent='Use at least 8 characters for the password.';return}
+      if(pw!==$('#aPass2').value){err.textContent='The passwords do not match.';return}
+    }
+    btn.disabled=true;btn.textContent=first?'Creating...':'Signing in...';
+    try{
+      if(first){
+        const p=seed(),ws={projects:[p],activeId:p.id,theme:sysTheme(),me:user.trim()};
+        const sess=await makeAccount(user,pw,true,ws);
+        SESSION=sess;initState(ws);
+      }else await doLogin(user,pw);
+      enterApp();
+    }catch(ex){
+      err.textContent=ex&&ex.code==='locked'?'Too many attempts. Wait 30 seconds and try again.':'Username or password is incorrect.';
+      btn.disabled=false;btn.textContent=first?'Create account':'Sign in';$('#aPass').value='';$('#aPass').focus();
+    }
+  });
+}
+function enterApp(){
+  $('#auth').hidden=true;$('#auth').innerHTML='';
+  document.body.classList.remove('locked');
+  applyTheme(S.theme);persist(true);resetIdle();render();startSync();
+}
+const cur=()=>S.projects.find(p=>p.id===S.activeId)||S.projects[0];
+
+const U={status:'',dl:'',q:'',sortKey:'sl',sortDir:1,groupBy:'module',d:null};
+
+/* ---------- logic helpers ---------- */
+function counts(tasks){const c={};STATUS_IDS.forEach(s=>c[s]=0);tasks.forEach(t=>{c[t.status]++});return c}
+function dlOf(t){
+  if(t.status==='Done')return 'done';
+  if(!t.dueDate)return 'none';
+  const n=today();
+  if(t.dueDate<n)return 'overdue';
+  if(t.dueDate<=addDays(n,7))return 'soon';
+  return 'later';
+}
+function jiraUrl(p,key){
+  if(!p.jiraBase||!key)return '';
+  return p.jiraBase.replace(/\/+$/,'')+'/'+encodeURIComponent(key.trim());
+}
+function sortedTasks(p,list,key,dir){
+  const col=p.columns.find(c=>c.key===key)||p.columns[0];
+  const val=t=>{
+    const v=t[col.key];
+    if(col.type==='status')return STATUS_IDS.indexOf(v);
+    if(col.type==='number'){const n=parseFloat(v);return isNaN(n)?-Infinity:n}
+    return String(v==null?'':v).toLowerCase();
+  };
+  return list.slice().sort((a,b)=>{const x=val(a),y=val(b);return (x<y?-1:x>y?1:0)*dir});
+}
+function visibleTasks(){
+  const p=cur();let list=p.tasks.slice();
+  if(U.status)list=list.filter(t=>t.status===U.status);
+  if(U.dl)list=list.filter(t=>dlOf(t)===U.dl);
+  if(U.q){
+    const q=U.q.toLowerCase();
+    list=list.filter(t=>p.columns.some(c=>String(t[c.key]==null?'':t[c.key]).toLowerCase().includes(q))||JSON.stringify(t.jd).toLowerCase().includes(q));
+  }
+  return sortedTasks(p,list,U.sortKey,U.sortDir);
+}
+function groupCols(p){return p.columns.filter(c=>(c.type==='text'||c.type==='select')&&c.key!=='feature'&&c.key!=='jira')}
+function twoStep(btn,run,label){
+  if(btn.dataset.armed){clearTimeout(btn._t);run();return}
+  btn.dataset.armed='1';btn._orig=btn.textContent;btn.textContent=label||'Click again to confirm';btn.classList.add('armed');
+  btn._t=setTimeout(()=>{delete btn.dataset.armed;btn.textContent=btn._orig;btn.classList.remove('armed')},3000);
+}
+let toastT;
+function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove('show'),2800)}
+function setPath(o,path,val){const ks=path.split('.');let t=o;for(let i=0;i<ks.length-1;i++)t=t[ks[i]];t[ks[ks.length-1]]=val}
+
+/* ---------- rendering: main page ---------- */
+function render(){if(!S)return;renderSide();renderHead();renderSummary();renderFilters();renderTable()}
+
+function renderSide(){
+  $('#side').innerHTML=
+    '<div class="brand">Task tracker</div>'+
+    '<div><div class="side-h"><span>Projects</span><button class="mini" data-act="newProject">+ New</button></div><nav class="plist">'+
+    S.projects.map(p=>'<button class="proj'+(p.id===cur().id?' on':'')+'" data-act="setProject" data-id="'+p.id+'"><span>'+esc(p.name)+'</span><span class="n">'+p.tasks.length+'</span></button>').join('')+
+    '</nav></div>'+
+    '<div class="palette" role="group" aria-label="Colour palette">'+
+    THEMES.map(t=>'<button class="pal'+(S.theme===t.id?' on':'')+'" data-act="setTheme" data-id="'+t.id+'" aria-label="'+t.name+' palette" aria-pressed="'+(S.theme===t.id)+'" style="background:linear-gradient(135deg,'+t.c[0]+' 50%,'+t.c[1]+' 50%)"></button>').join('')+
+    '</div>'+
+    '<div><div class="side-h" style="padding-bottom:4px"><span>Google Sheet</span><button class="mini" data-act="openSync">'+(syncCfg()?'Manage':'Set up')+'</button></div><div id="syncChip" class="'+((SY.status==='error'||SY.status==='conflict')&&syncCfg()?'late':'muted')+'" style="padding:0 6px;font-size:13px">'+esc(syncText())+'</div></div>'+
+    '<div class="who"><span>Signed in as <b>'+esc(SESSION.label)+'</b></span><div><button class="mini" data-act="openUsers">Account</button><button class="mini" data-act="signOut">Sign out</button></div></div>';
+}
+function renderHead(){
+  const p=cur(),c=counts(p.tasks);
+  $('#head').innerHTML=
+    '<div><h1>'+esc(p.name)+'</h1><p>'+p.tasks.length+' task'+(p.tasks.length===1?'':'s')+', '+c['Done']+' done</p></div>'+
+    '<div class="actions"><button class="btn primary" data-act="addTask">+ Add task</button><button class="btn" data-act="openCols">Columns</button><button class="btn" data-act="openExport">Export</button><button class="btn" data-act="openSettings">Project settings</button></div>';
+}
+function donut(tasks){
+  const n=tasks.length,R=52,C=2*Math.PI*R,c=counts(tasks);
+  let segs='',off=0;
+  if(!n){segs='<circle cx="70" cy="70" r="'+R+'" fill="none" stroke="var(--line)" stroke-width="18"/>'}
+  else STATUSES.forEach(s=>{
+    const v=c[s.id];if(!v)return;const len=v/n*C;
+    segs+='<circle class="seg" data-act="fstatus" data-v="'+s.id+'" cx="70" cy="70" r="'+R+'" fill="none" stroke="var('+s.v+')" stroke-width="18" stroke-dasharray="'+len.toFixed(2)+' '+(C-len).toFixed(2)+'" stroke-dashoffset="'+(-off).toFixed(2)+'" transform="rotate(-90 70 70)"><title>'+s.id+': '+v+'</title></circle>';
+    off+=len;
+  });
+  const pct=n?Math.round(c['Done']/n*100):0;
+  return '<svg class="donut" viewBox="0 0 140 140" role="img" aria-label="Task status chart, '+pct+' percent done">'+segs+
+    '<text x="70" y="68" text-anchor="middle" font-size="26" font-weight="700" fill="var(--text)" font-family="Bricolage Grotesque,sans-serif">'+pct+'%</text>'+
+    '<text x="70" y="88" text-anchor="middle" font-size="12" fill="var(--muted)">done</text></svg>';
+}
+function renderSummary(){
+  const p=cur(),tasks=p.tasks,c=counts(tasks);
+  const gcols=groupCols(p);
+  if(!gcols.some(g=>g.key===U.groupBy))U.groupBy=gcols.length?gcols[0].key:'';
+  // workload bars
+  let bars='';
+  if(!U.groupBy)bars='<p class="muted">Add a text or dropdown column to group tasks.</p>';
+  else if(!tasks.length)bars='<p class="muted">Bars appear once you add tasks.</p>';
+  else{
+    const map=new Map();
+    tasks.forEach(t=>{const g=String(t[U.groupBy]==null?'':t[U.groupBy]).trim()||'Not set';if(!map.has(g))map.set(g,[]);map.get(g).push(t)});
+    const rows=[...map.entries()].sort((a,b)=>b[1].length-a[1].length).slice(0,8);
+    const max=rows[0][1].length;
+    bars=rows.map(([g,list])=>{
+      const cc=counts(list);
+      const segs=STATUSES.filter(s=>cc[s.id]).map(s=>'<i style="flex:'+cc[s.id]+';background:var('+s.v+')" title="'+s.id+': '+cc[s.id]+'"></i>').join('');
+      return '<div class="gbar"><div class="glabel" title="'+esc(g)+'">'+esc(g)+'</div><div class="gtrack"><div class="gfill" style="width:'+(list.length/max*100)+'%">'+segs+'</div></div><div class="gnum">'+list.length+'</div></div>';
+    }).join('');
+  }
+  const dc={overdue:0,soon:0,later:0,none:0};
+  tasks.forEach(t=>{const k=dlOf(t);if(dc[k]!=null)dc[k]++});
+  const dlBtn=(k,label,bad)=>'<button class="dl'+(U.dl===k?' on':'')+(bad&&dc[k]?' bad':'')+'" data-act="fdl" data-v="'+k+'"><b>'+dc[k]+'</b><span>'+label+'</span></button>';
+  $('#summary').innerHTML=
+    '<div class="card"><h3>Status</h3><div class="donut-wrap">'+donut(tasks)+'<div class="legend">'+
+      STATUSES.map(s=>'<button class="lg" data-act="fstatus" data-v="'+s.id+'"><span class="dot" style="--c:var('+s.v+')"></span>'+s.id+'<b>'+c[s.id]+'</b></button>').join('')+
+    '</div></div></div>'+
+    '<div class="card"><h3>Workload by <select id="groupBy" aria-label="Group workload by">'+gcols.map(g=>'<option value="'+g.key+'"'+(g.key===U.groupBy?' selected':'')+'>'+esc(g.label)+'</option>').join('')+'</select></h3>'+bars+'</div>'+
+    '<div class="card"><h3>Open tasks by deadline</h3>'+dlBtn('overdue','Overdue',true)+dlBtn('soon','Due in the next 7 days')+dlBtn('later','Due later')+dlBtn('none','No due date')+'</div>';
+}
+function renderFilters(){
+  const p=cur(),c=counts(p.tasks);
+  const dlNames={overdue:'Overdue',soon:'Due in 7 days',later:'Due later',none:'No due date'};
+  $('#filters').innerHTML=
+    '<input class="search" id="search" type="search" placeholder="Search tasks, Jira keys, comments" value="'+esc(U.q)+'" aria-label="Search tasks">'+
+    '<button class="chip'+(!U.status?' on':'')+'" data-act="fstatus" data-v="">All <b>'+p.tasks.length+'</b></button>'+
+    STATUSES.map(s=>'<button class="chip'+(U.status===s.id?' on':'')+'" data-act="fstatus" data-v="'+s.id+'"><span class="dot" style="--c:var('+s.v+')"></span>'+s.id+' <b>'+c[s.id]+'</b></button>').join('')+
+    (U.dl?'<button class="chip on" data-act="fdl" data-v="'+U.dl+'">'+dlNames[U.dl]+' &times;</button>':'');
+}
+function cell(t,c,p){
+  const v=t[c.key];
+  switch(c.type){
+    case 'status':{const s=statusDef(v);return '<select class="st" data-statussel="'+t.id+'" style="--c:var('+s.v+')" aria-label="Status">'+STATUS_IDS.map(o=>'<option'+(o===v?' selected':'')+'>'+o+'</option>').join('')+'</select>'}
+    case 'jira':{
+      if(!v)return '<span class="muted">-</span>';
+      const u=jiraUrl(p,v),n=t.jd.subtasks.length,m=t.jd.comments.length;
+      const key=u?'<a class="jkey" href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(v)+'</a>':'<span class="strong">'+esc(v)+'</span>';
+      const meta=(n||m)?'<span class="jmeta">'+(n?n+' subtask'+(n>1?'s':''):'')+(n&&m?', ':'')+(m?m+' comment'+(m>1?'s':''):'')+'</span>':'';
+      return key+meta;
+    }
+    case 'date':{
+      if(!v)return '';
+      const late=c.key==='dueDate'&&dlOf(t)==='overdue';
+      return '<span class="'+(late?'late':'')+'">'+fmtDate(v)+(late?' (overdue)':'')+'</span>';
+    }
+    case 'longtext':return v?'<div class="clamp">'+esc(v)+'</div>':'';
+    default:return c.key==='feature'?'<span class="strong">'+esc(v)+'</span>':esc(v);
+  }
+}
+function renderTable(){
+  const p=cur(),cols=p.columns.filter(c=>c.visible),list=visibleTasks(),wrap=$('#tablewrap');
+  if(!p.tasks.length){wrap.innerHTML='<div class="empty"><h3>No tasks in this project yet</h3><p>Add the first one to start tracking.</p><button class="btn primary" data-act="addTask">+ Add task</button></div>';return}
+  if(!list.length){wrap.innerHTML='<div class="empty"><h3>No tasks match these filters</h3><button class="btn" data-act="clearFilters">Clear filters</button></div>';return}
+  if(!cols.length){wrap.innerHTML='<div class="empty"><h3>All columns are hidden</h3><button class="btn" data-act="openCols">Choose columns</button></div>';return}
+  wrap.innerHTML='<table><thead><tr>'+cols.map(c=>{
+    const on=U.sortKey===c.key;
+    return '<th data-act="sort" data-key="'+c.key+'" aria-sort="'+(on?(U.sortDir>0?'ascending':'descending'):'none')+'">'+esc(c.label)+(on?(U.sortDir>0?' &#9650;':' &#9660;'):'')+'</th>';
+  }).join('')+'</tr></thead><tbody>'+list.map(t=>'<tr data-id="'+t.id+'" tabindex="0">'+cols.map(c=>'<td>'+cell(t,c,p)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+}
+
+/* ---------- drawer ---------- */
+function F(label,path,val,o){
+  o=o||{};
+  const cls='f'+(o.full?' full':'');
+  if(o.opts){
+    const opts=o.opts.slice();if(val&&!opts.includes(val))opts.push(val);
+    return '<label class="'+cls+'"><span>'+esc(label)+'</span><select data-bind="'+path+'">'+opts.map(x=>'<option value="'+esc(x)+'"'+(x===val?' selected':'')+'>'+(x===''?'-':esc(x))+'</option>').join('')+'</select></label>';
+  }
+  if(o.area)return '<label class="'+cls+'"><span>'+esc(label)+'</span><textarea data-bind="'+path+'" rows="'+(o.rows||3)+'">'+esc(val)+'</textarea></label>';
+  return '<label class="'+cls+'"><span>'+esc(label)+'</span><input type="'+(o.type||'text')+'" data-bind="'+path+'"'+(o.num?' data-num="1"':'')+' value="'+esc(val)+'"'+(o.ph?' placeholder="'+esc(o.ph)+'"':'')+'></label>';
+}
+function taskFields(p,t){
+  return p.columns.map(c=>{
+    const v=t[c.key]==null?'':t[c.key];
+    switch(c.type){
+      case 'status':return F(c.label,c.key,v,{opts:STATUS_IDS});
+      case 'select':return F(c.label,c.key,v,{opts:['',...(c.options||[])]});
+      case 'longtext':return F(c.label,c.key,v,{area:1,full:1});
+      case 'date':return F(c.label,c.key,v,{type:'date'});
+      case 'number':return F(c.label,c.key,v,{type:'number',num:c.key==='sl'});
+      case 'jira':return F(c.label,c.key,v,{ph:'e.g. PROJ-123'});
+      default:return F(c.label,c.key,v,{full:c.key==='feature'});
+    }
+  }).join('');
+}
+function newTask(p){
+  const max=p.tasks.reduce((m,t)=>Math.max(m,parseInt(t.sl)||0),0);
+  const t={id:uid(),sl:max+1,status:'To Do',requestDate:today()};
+  p.columns.forEach(c=>{if(!(c.key in t))t[c.key]=''});
+  return ensureTask(t);
+}
+function openDrawer(task,isNew){U.d={t:task,isNew:isNew};renderDrawer(true)}
+function closeDrawer(){U.d=null;renderDrawer()}
+function renderDrawer(focus){
+  const root=$('#drawer');
+  if(!U.d){root.innerHTML='';document.body.classList.remove('lock');return}
+  const prev=root.querySelector('.dbody'),st=prev?prev.scrollTop:0;
+  const t=U.d.t,isNew=U.d.isNew,p=cur(),jd=t.jd,url=jiraUrl(p,t.jira);
+  document.body.classList.add('lock');
+  root.innerHTML=
+  '<div class="scrim" data-act="closeDrawer"></div>'+
+  '<aside class="drawer" role="dialog" aria-modal="true" aria-label="Task details">'+
+    '<div class="dhead"><div><h2 id="dtitle">'+esc(t.feature||(isNew?'New task':'Untitled task'))+'</h2><p class="hint" style="margin:6px 0 0">'+esc(p.name)+(isNew?'':', changes save automatically')+'</p></div><button class="icon-btn" data-act="closeDrawer" aria-label="Close">&times;</button></div>'+
+    '<div class="dbody">'+
+      '<div class="sec"><h3>Task</h3><div class="grid2">'+taskFields(p,t)+'</div></div>'+
+      '<div class="sec"><h3>Jira details'+(url?'<a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">Open in Jira</a>':'')+'</h3>'+
+        '<p class="hint">Fill these in from the Jira issue. Set the Jira base URL in Project settings to turn the key into a link.</p>'+
+        '<div class="grid2">'+
+          F('Summary','jd.summary',jd.summary,{full:1})+
+          F('Issue type','jd.type',jd.type,{opts:ISSUE_TYPES})+
+          F('Priority','jd.priority',jd.priority,{opts:PRIORITIES})+
+          F('Jira status','jd.status',jd.status,{opts:STATUS_IDS})+
+          F('Sprint or fix version','jd.sprint',jd.sprint)+
+          F('Assignee','jd.assignee',jd.assignee)+
+          F('Reporter','jd.reporter',jd.reporter)+
+          F('Created','jd.created',jd.created,{type:'date'})+
+          F('Updated','jd.updated',jd.updated,{type:'date'})+
+          F('Jira due date','jd.due',jd.due,{type:'date'})+
+          F('Labels (comma separated)','jd.labels',jd.labels)+
+          F('Jira description','jd.description',jd.description,{area:1,full:1,rows:4})+
+        '</div></div>'+
+      '<div class="sec"><h3>Subtasks <span class="muted" style="font:500 13px Instrument Sans,sans-serif">'+jd.subtasks.length+'</span><button class="btn sm" data-act="addSub">+ Add subtask</button></h3>'+
+        (jd.subtasks.length?'<div class="sub h"><span>Key</span><span>Summary</span><span>Status</span><span>Assignee</span><span></span></div>':'<p class="hint">No Jira subtasks added.</p>')+
+        jd.subtasks.map((s,i)=>'<div class="sub">'+
+          '<input type="text" data-bind="jd.subtasks.'+i+'.key" value="'+esc(s.key)+'" placeholder="PROJ-1" aria-label="Subtask key">'+
+          '<input type="text" data-bind="jd.subtasks.'+i+'.summary" value="'+esc(s.summary)+'" placeholder="Summary" aria-label="Subtask summary">'+
+          '<select data-bind="jd.subtasks.'+i+'.status" aria-label="Subtask status">'+STATUS_IDS.map(o=>'<option'+(o===s.status?' selected':'')+'>'+o+'</option>').join('')+'</select>'+
+          '<input type="text" data-bind="jd.subtasks.'+i+'.assignee" value="'+esc(s.assignee)+'" placeholder="Assignee" aria-label="Subtask assignee">'+
+          '<button class="icon-btn" data-act="delSub" data-i="'+i+'" aria-label="Remove subtask">&times;</button></div>').join('')+
+      '</div>'+
+      '<div class="sec"><h3>Jira comments <span class="muted" style="font:500 13px Instrument Sans,sans-serif">'+jd.comments.length+'</span></h3>'+
+        (jd.comments.length?jd.comments.map((c,i)=>'<div class="cmt"><div class="cmeta"><b>'+esc(c.author||'Unknown')+'</b><span>'+fmtDT(c.date)+'</span><button class="icon-btn" data-act="delCmt" data-i="'+i+'" aria-label="Delete comment">&times;</button></div><div class="ctext">'+esc(c.text)+'</div></div>').join(''):'<p class="hint">No comments yet.</p>')+
+        '<div class="grid2" style="margin-top:12px"><label class="f"><span>Author</span><input type="text" id="cAuthor" value="'+esc(S.me||'')+'" placeholder="Your name"></label>'+
+        '<label class="f full"><span>New comment</span><textarea id="cText" rows="3" placeholder="Paste or write a Jira comment"></textarea></label></div>'+
+        '<div style="margin-top:8px"><button class="btn sm" data-act="addCmt">Add comment</button></div></div>'+
+    '</div>'+
+    '<div class="dfoot">'+(isNew?'<button class="btn" data-act="closeDrawer">Cancel</button><button class="btn primary" data-act="saveNew">Add task</button>':'<button class="btn danger" data-act="delTask">Delete task</button><button class="btn primary" data-act="closeDrawer">Close</button>')+'</div>'+
+  '</aside>';
+  const nb=root.querySelector('.dbody');if(nb)nb.scrollTop=st;
+  if(focus&&U.d.isNew){const i=root.querySelector('[data-bind="feature"]');if(i)i.focus()}
+}
+
+/* ---------- modals ---------- */
+function openModal(title,body,foot){
+  $('#modal').innerHTML='<div class="scrim" data-act="closeModal" style="z-index:49"></div><div class="modal" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><div class="mhead"><h2>'+esc(title)+'</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">&times;</button></div><div class="mbody">'+body+'</div>'+(foot?'<div class="mfoot">'+foot+'</div>':'')+'</div>';
+}
+function closeModal(){$('#modal').innerHTML=''}
+function colsModal(){
+  const p=cur();
+  const rows=p.columns.map((c,i)=>'<div class="colrow">'+
+    '<input type="checkbox" data-colvis="'+c.key+'"'+(c.visible?' checked':'')+' aria-label="Show '+esc(c.label)+'">'+
+    '<input type="text" data-collabel="'+c.key+'" value="'+esc(c.label)+'" aria-label="Column name">'+
+    '<span class="t">'+(COL_TYPES.find(x=>x[0]===c.type)||[0,c.type==='status'?'Status':c.type==='jira'?'Jira key':c.type])[1]+'</span>'+
+    '<span class="rowbtns"><button class="icon-btn" data-act="colUp" data-key="'+c.key+'" aria-label="Move up"'+(i===0?' disabled':'')+'>&#9650;</button><button class="icon-btn" data-act="colDown" data-key="'+c.key+'" aria-label="Move down"'+(i===p.columns.length-1?' disabled':'')+'>&#9660;</button>'+
+    (c.builtin?'':'<button class="btn sm danger" data-act="colDel" data-key="'+c.key+'">Delete</button>')+'</span></div>').join('');
+  openModal('Columns',
+    '<p class="hint" style="margin:0">Tick to show a column in the table. Every column, shown or not, appears in the task form.</p>'+rows+
+    '<div style="border-top:var(--bw) solid var(--line);padding-top:14px"><h3 style="font-size:16px;margin-bottom:10px">Add a column</h3>'+
+    '<div class="grid2"><label class="f"><span>Column name</span><input type="text" id="ncName" placeholder="e.g. Priority, Client"></label>'+
+    '<label class="f"><span>Type</span><select id="ncType">'+COL_TYPES.map(x=>'<option value="'+x[0]+'">'+x[1]+'</option>').join('')+'</select></label>'+
+    '<label class="f full" id="ncOptsWrap" style="display:none"><span>Dropdown options (comma separated)</span><input type="text" id="ncOpts" placeholder="High, Medium, Low"></label></div>'+
+    '<div style="margin-top:10px"><button class="btn primary" data-act="colAdd">Add column</button></div></div>',
+    '<button class="btn" data-act="closeModal">Done</button>');
+}
+function projectModal(isNew){
+  const p=cur();
+  openModal(isNew?'New project':'Project settings',
+    '<label class="f"><span>Project name</span><input type="text" id="pName" value="'+(isNew?'':esc(p.name))+'" placeholder="e.g. Customer portal"></label>'+
+    '<label class="f"><span>Jira base URL (optional)</span><input type="text" id="pBase" value="'+(isNew?'':esc(p.jiraBase))+'" placeholder="https://yourteam.atlassian.net/browse"></label>'+
+    (isNew?'<label class="check"><input type="checkbox" id="pCopy" checked> Copy columns from the current project</label>':
+      (S.projects.length>1?'<div style="border-top:var(--bw) solid var(--line);padding-top:14px"><button class="btn danger" data-act="delProject">Delete this project</button><p class="hint" style="margin:8px 0 0">Removes the project and all its tasks.</p></div>':'<p class="hint" style="margin:0">Add another project to be able to delete this one.</p>')),
+    '<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="'+(isNew?'createProject':'saveProject')+'">'+(isNew?'Create project':'Save changes')+'</button>');
+  setTimeout(()=>{const i=$('#pName');if(i)i.focus()},0);
+}
+function usersModal(){
+  const users=getUsers();
+  let body='<div><h3 style="font-size:16px;margin-bottom:8px">Change your password</h3><div class="grid2"><label class="f"><span>New password</span><input type="password" id="npw" autocomplete="new-password"></label><label class="f"><span>Confirm</span><input type="password" id="npw2" autocomplete="new-password"></label></div><div style="margin-top:10px"><button class="btn" data-act="changePw">Change password</button></div></div>';
+  if(SESSION.admin){
+    body+='<div style="border-top:var(--bw) solid var(--line);padding-top:14px"><h3 style="font-size:16px;margin-bottom:6px">Users</h3><p class="hint">Each user has a separate, private workspace protected by their own password. If someone forgets their password, remove them and add them again; their tasks cannot be recovered.</p>'+
+    Object.keys(users).sort().map(n=>'<div class="urow"><span>'+esc(users[n].label)+(users[n].admin?' <span class="muted">(admin)</span>':'')+'</span>'+(n===SESSION.name||users[n].admin?'':'<button class="btn sm danger" data-act="delUser" data-name="'+esc(n)+'">Remove</button>')+'</div>').join('')+
+    '<div class="grid2" style="margin-top:12px"><label class="f"><span>New username</span><input type="text" id="nuName" autocomplete="off"></label><label class="f"><span>Starting password</span><input type="password" id="nuPw" autocomplete="new-password"></label></div><div style="margin-top:10px"><button class="btn primary" data-act="addUser">Add user</button></div></div>';
+  }
+  openModal('Account',body,'<button class="btn" data-act="closeModal">Close</button>');
+}
+function exportModal(){
+  openModal('Export',
+    '<div class="radio"><label class="check"><input type="radio" name="scope" value="current" checked> This project</label><label class="check"><input type="radio" name="scope" value="all"> All projects ('+S.projects.length+')</label></div>'+
+    '<label class="check"><input type="checkbox" id="incJira" checked> Include Jira details, comments and subtasks</label>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-act="expXlsx">Download Excel</button><button class="btn primary" data-act="expPdf">Download PDF</button></div>'+
+    '<div style="border-top:var(--bw) solid var(--line);padding-top:14px"><h3 style="font-size:16px;margin-bottom:6px">Backup</h3><p class="hint">Your data is stored in this browser only. Save a backup file to move it elsewhere or keep a copy.</p>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="expJson">Save backup (JSON)</button><button class="btn" data-act="impJson">Restore from backup</button></div><p class="hint" style="margin:8px 0 0">Restoring replaces everything currently in the tracker.</p></div>',
+    '<button class="btn" data-act="closeModal">Close</button>');
+}
+
+/* ---------- export ---------- */
+async function saveFile(filename,data){
+  let dl=null;
+  try{dl=(window.claude&&window.claude.use)?await window.claude.use('downloads'):null}catch(e){dl=null}
+  if(!dl){
+    try{
+      const blob=data instanceof Blob?data:new Blob([data],{type:'application/json'});
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href),4000);toast('Saved '+filename);
+    }catch(e){toast('Saving files is not available in this view.')}
+    return;
+  }
+  try{await dl.save({filename:filename,data:data});toast('Saved '+filename)}
+  catch(e){if(e&&e.code==='declined')return;toast('Could not save the file'+(e&&e.message?': '+e.message:''))}
+}
+function exportScope(){const r=document.querySelector('input[name=scope]:checked');return r&&r.value==='all'?S.projects:[cur()]}
+function plain(t,c){const v=t[c.key];if(v==null)return '';return c.type==='date'?fmtDate(v):String(v)}
+function jiraRows(projs){
+  const det=[],cm=[],sub=[];
+  projs.forEach(p=>sortedTasks(p,p.tasks,'sl',1).forEach(t=>{
+    const j=t.jd;
+    det.push({Project:p.name,SL:t.sl,Feature:t.feature||'','Jira key':t.jira||'',Summary:j.summary,Type:j.type,Priority:j.priority,Status:j.status,Assignee:j.assignee,Reporter:j.reporter,Created:fmtDate(j.created),Updated:fmtDate(j.updated),'Due date':fmtDate(j.due),Sprint:j.sprint,Labels:j.labels,Description:j.description});
+    j.comments.forEach(c=>cm.push({Project:p.name,SL:t.sl,'Jira key':t.jira||'',Author:c.author,Date:fmtDT(c.date),Comment:c.text}));
+    j.subtasks.forEach(s=>sub.push({Project:p.name,SL:t.sl,Parent:t.jira||'','Subtask key':s.key,Summary:s.summary,Status:s.status,Assignee:s.assignee}));
+  }));
+  return {det,cm,sub};
+}
+function exportXlsx(){
+  if(!window.XLSX){toast('The Excel library has not loaded yet. Try again in a moment.');return}
+  const projs=exportScope(),inc=$('#incJira').checked,wb=XLSX.utils.book_new(),used=new Set();
+  const sheetName=n=>{const b=String(n).replace(/[\[\]:*?\/\\]/g,' ').trim().slice(0,27)||'Sheet';let s=b,i=2;while(used.has(s.toLowerCase())){s=b.slice(0,24)+' '+(i++)}used.add(s.toLowerCase());return s};
+  projs.forEach(p=>{
+    const cols=p.columns.filter(c=>c.visible),tasks=sortedTasks(p,p.tasks,'sl',1);
+    const ws=XLSX.utils.aoa_to_sheet([cols.map(c=>c.label)].concat(tasks.map(t=>cols.map(c=>plain(t,c)))));
+    ws['!cols']=cols.map(c=>({wch:c.type==='longtext'?48:Math.max(12,c.label.length+4)}));
+    XLSX.utils.book_append_sheet(wb,ws,sheetName(p.name));
+  });
+  if(inc){
+    const r=jiraRows(projs);
+    const add=(rows,name,widths)=>{if(!rows.length)return;const ws=XLSX.utils.json_to_sheet(rows);ws['!cols']=Object.keys(rows[0]).map(k=>({wch:widths[k]||14}));XLSX.utils.book_append_sheet(wb,ws,sheetName(name))};
+    add(r.det,'Jira details',{Project:18,Feature:28,Summary:34,Description:50,Labels:20});
+    add(r.cm,'Jira comments',{Project:18,Comment:70,Date:20});
+    add(r.sub,'Subtasks',{Project:18,Summary:40});
+  }
+  const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  const name=(projs.length>1?'all-projects':slug(projs[0].name))+'-tasks-'+today()+'.xlsx';
+  saveFile(name,new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+}
+function exportPdf(){
+  if(!(window.jspdf&&window.jspdf.jsPDF)){toast('The PDF library has not loaded yet. Try again in a moment.');return}
+  const projs=exportScope(),inc=$('#incJira').checked;
+  const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'a4'});
+  const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight(),M=36;
+  const head={fillColor:[30,41,54],textColor:255,fontSize:8.5};
+  const base={fontSize:8,cellPadding:4,overflow:'linebreak',valign:'top'};
+  const room=y=>{if(y>H-110){doc.addPage();return M+10}return y};
+  projs.forEach((p,pi)=>{
+    if(pi>0)doc.addPage();
+    const cols=p.columns.filter(c=>c.visible),tasks=sortedTasks(p,p.tasks,'sl',1),c=counts(p.tasks);
+    doc.setFont('helvetica','bold');doc.setFontSize(18);doc.setTextColor(20,30,40);doc.text(p.name,M,M+10);
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90,100,110);
+    doc.text('Exported '+fmtDate(today())+'.  '+p.tasks.length+' tasks:  '+STATUS_IDS.map(s=>s+' '+c[s]).join(',  '),M,M+28);
+    doc.autoTable({startY:M+42,margin:{left:M,right:M,bottom:40},head:[cols.map(x=>x.label)],body:tasks.map(t=>cols.map(x=>plain(t,x))),styles:base,headStyles:head,alternateRowStyles:{fillColor:[245,247,249]},
+      didParseCell:d=>{if(d.section==='body'&&cols[d.column.index].type==='status'){d.cell.styles.textColor=statusDef(d.cell.raw).rgb;d.cell.styles.fontStyle='bold'}}});
+    if(inc){
+      const r=jiraRows([p]);
+      let y=doc.lastAutoTable.finalY+26;
+      const block=(title,rows,keys)=>{
+        if(!rows.length)return;
+        y=room(y);doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(20,30,40);doc.text(title,M,y);
+        doc.autoTable({startY:y+8,margin:{left:M,right:M,bottom:40},head:[keys],body:rows.map(o=>keys.map(k=>o[k]==null?'':String(o[k]))),styles:base,headStyles:head,alternateRowStyles:{fillColor:[245,247,249]}});
+        y=doc.lastAutoTable.finalY+24;
+      };
+      block('Jira details',r.det,['SL','Jira key','Summary','Type','Priority','Status','Assignee','Reporter','Due date','Sprint']);
+      block('Jira comments',r.cm,['SL','Jira key','Author','Date','Comment']);
+      block('Subtasks',r.sub,['SL','Parent','Subtask key','Summary','Status','Assignee']);
+    }
+  });
+  const n=doc.internal.getNumberOfPages();
+  for(let i=1;i<=n;i++){doc.setPage(i);doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(120,130,140);doc.text('Page '+i+' of '+n,W-M,H-18,{align:'right'})}
+  const name=(projs.length>1?'all-projects':slug(projs[0].name))+'-tasks-'+today()+'.pdf';
+  saveFile(name,doc.output('blob'));
+}
+
+/* ---------- Google Sheet sync (via Apps Script web app) ---------- */
+const SY={status:'off',msg:'',busy:false,timer:null,poll:null,pending:null};
+function djb(str){let h=5381;for(let i=0;i<str.length;i++)h=((h<<5)+h+str.charCodeAt(i))|0;return (h>>>0)+':'+str.length}
+const syncCfg=()=>(S&&S.sync&&S.sync.url&&S.sync.key)?S.sync:null;
+const fmtTime=iso=>{const d=new Date(iso);return isNaN(d)?'':d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})};
+function syncText(){
+  if(!syncCfg())return 'Not connected';
+  switch(SY.status){
+    case 'saving':return 'Saving to sheet...';
+    case 'loading':return 'Checking the sheet...';
+    case 'error':return SY.msg||'Sync failed';
+    case 'conflict':return 'Choose which version to keep';
+    case 'ok':return S.sync.last?'Synced at '+fmtTime(S.sync.last):'Synced';
+    default:return 'Waiting to sync';
+  }
+}
+function setSync(status,msg){
+  SY.status=status;SY.msg=msg||'';
+  const el=$('#syncChip');
+  if(el){el.textContent=syncText();el.className=(status==='error'||status==='conflict')?'late':'muted'}
+}
+function errMsg(e){
+  switch(e&&e.code){
+    case 'network':return 'Could not reach the sheet. Check that the URL ends in /exec, the deployment access is set to Anyone (redeploy a new version after any change), and this page is opened from your computer or a hosted site, not inside Claude.';
+    case 'badresponse':return 'The URL did not return sync data. Deploy the web app with access set to Anyone.';
+    case 'auth':return 'The secret key does not match the one in the script.';
+    case 'setup':return 'Set your secret key in the script, then deploy again.';
+    case 'busy':return 'The sheet is busy. Try again in a moment.';
+    case 'server':return 'Google reported an error'+(e.message?': '+e.message:'.');
+    default:return 'Sync failed.';
+  }
+}
+async function sheetCall(payload){
+  const cfg=S.sync;let res,data;
+  try{res=await fetch(cfg.url,{method:'POST',redirect:'follow',body:JSON.stringify(Object.assign({key:cfg.key},payload))})}
+  catch(e){throw {code:'network'}}
+  try{data=await res.json()}catch(e){throw {code:'badresponse'}}
+  if(!data||!data.ok)throw {code:(data&&data.error)||'error',version:data&&data.version,message:data&&data.message};
+  return data;
+}
+async function probeMsg(url){
+  let reached=false;
+  try{await fetch(url,{method:'GET',mode:'no-cors'});reached=true}catch(e){reached=false}
+  if(reached)return 'Google answered, but the browser blocked the reply. This almost always means the web app is not set to "Anyone", or an older version is still deployed. In Apps Script: Deploy > Manage deployments > pencil icon > Version: New version, Who has access: Anyone > Deploy. If "Anyone" is not offered, your Google Workspace admin has restricted it.';
+  return 'Your browser cannot connect to script.google.com. Check your internet connection and turn off any ad blocker, VPN or firewall rule that may block it, or try another browser.';
+}
+function buildMirror(projs){
+  const used=new Set(['_data','jira details','jira comments','subtasks']);
+  const nm=n=>{const b=String(n).replace(/[\[\]:*?\/\\]/g,' ').trim().slice(0,60)||'Project';let s=b,i=2;while(used.has(s.toLowerCase()))s=b.slice(0,56)+' '+(i++);used.add(s.toLowerCase());return s};
+  const sheets=[];
+  projs.forEach(p=>{
+    const cols=p.columns.filter(c=>c.visible),tasks=sortedTasks(p,p.tasks,'sl',1);
+    sheets.push({name:nm(p.name),rows:[cols.map(c=>c.label)].concat(tasks.map(t=>cols.map(c=>plain(t,c))))});
+  });
+  const r=jiraRows(projs);
+  const tab=(rows,name,keys)=>sheets.push({name:name,rows:[keys].concat(rows.map(o=>keys.map(k=>o[k]==null?'':String(o[k]))))});
+  tab(r.det,'Jira details',['Project','SL','Feature','Jira key','Summary','Type','Priority','Status','Assignee','Reporter','Created','Updated','Due date','Sprint','Labels','Description']);
+  tab(r.cm,'Jira comments',['Project','SL','Jira key','Author','Date','Comment']);
+  tab(r.sub,'Subtasks',['Project','SL','Parent','Subtask key','Summary','Status','Assignee']);
+  return sheets;
+}
+function normProjects(projs){
+  projs.forEach(p=>{p.columns=p.columns&&p.columns.length?p.columns:defaultCols();p.tasks=(p.tasks||[]).map(ensureTask);p.jiraBase=p.jiraBase||'';p.id=p.id||uid()});
+  return projs;
+}
+function applyRemote(r){
+  const projs=normProjects(JSON.parse(r.projectsJson));
+  if(!projs.length)return;
+  S.projects=projs;
+  if(!S.projects.some(p=>p.id===S.activeId))S.activeId=S.projects[0].id;
+  S.sync.version=r.version;S.sync.hash=djb(JSON.stringify(S.projects));S.sync.last=new Date().toISOString();
+  U.d=null;renderDrawer();persist(true);render();setSync('ok');
+}
+async function pushCore(force){
+  setSync('saving');
+  const json=JSON.stringify(S.projects);
+  const r=await sheetCall({action:'save',baseVersion:force?null:S.sync.version,projectsJson:json,mirror:buildMirror(JSON.parse(json))});
+  S.sync.version=r.version;S.sync.hash=djb(json);S.sync.last=new Date().toISOString();
+  persist(true);setSync('ok');
+}
+async function pullCore(){
+  setSync('loading');
+  const r=await sheetCall({action:'load'});
+  const dirty=djb(JSON.stringify(S.projects))!==S.sync.hash,hasLocal=S.projects.some(p=>p.tasks.length>0),rv=r.version||0;
+  if(!r.projectsJson){await pushCore(true);return}
+  if(rv===S.sync.version){if(dirty)await pushCore(false);else{S.sync.last=new Date().toISOString();setSync('ok')}return}
+  if(rv>S.sync.version){
+    if(!dirty||(S.sync.version===0&&!hasLocal)){applyRemote(r);return}
+    SY.pending=r;setSync('conflict');openConflict();return;
+  }
+  await pushCore(true);
+}
+async function syncRun(kind){
+  if(!syncCfg())return;
+  if(SY.busy){if(kind==='push'){clearTimeout(SY.timer);SY.timer=setTimeout(()=>syncRun('push'),1500)}return}
+  SY.busy=true;
+  try{
+    if(kind==='force')await pushCore(true);
+    else if(kind==='push')await pushCore(false);
+    else await pullCore();
+  }catch(e){
+    if(e&&e.code==='conflict'){setSync('idle');setTimeout(()=>syncRun('pull'),0)}
+    else setSync('error',errMsg(e));
+  }finally{SY.busy=false}
+}
+function scheduleSync(){
+  if(!syncCfg()||SY.status==='conflict')return;
+  if(djb(JSON.stringify(S.projects))===S.sync.hash)return;
+  clearTimeout(SY.timer);SY.timer=setTimeout(()=>syncRun('push'),1800);
+}
+function startSync(){
+  clearInterval(SY.poll);clearTimeout(SY.timer);SY.pending=null;
+  if(!syncCfg()){setSync('off');return}
+  setSync('idle');
+  SY.poll=setInterval(()=>{if(S&&syncCfg()&&!U.d&&!SY.busy&&SY.status!=='conflict')syncRun('pull')},60000);
+  syncRun('pull');
+}
+function stopSync(){clearInterval(SY.poll);clearTimeout(SY.timer);SY.pending=null;SY.busy=false;SY.status='off';SY.msg=''}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'&&S&&syncCfg()&&!U.d&&!SY.busy&&SY.status!=='conflict')syncRun('pull');
+});
+function openConflict(){
+  openModal('The sheet and this browser differ',
+    '<p style="margin:0">The sheet has changes made elsewhere, and this browser also has changes that are not in the sheet yet. Pick the version to keep. The other one is replaced.</p>',
+    '<button class="btn" data-act="syncLater">Decide later</button><button class="btn danger" data-act="syncKeepMine">Keep mine, overwrite the sheet</button><button class="btn primary" data-act="syncUseSheet">Use the sheet version</button>');
+}
+function syncModal(){
+  const c=S.sync||{};
+  openModal('Google Sheet sync',
+    '<p class="hint" style="margin:0">Tasks save to a Google Sheet through a small Apps Script you add to that sheet. Everyone who uses the same web app URL and key shares the same projects and tasks. The sheet tabs are a readable copy; make changes here in the tracker.</p>'+
+    '<label class="f"><span>Web app URL</span><input type="text" id="syUrl" value="'+esc(c.url||'')+'" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></label>'+
+    '<label class="f"><span>Secret key</span><input type="password" id="syKey" value="'+esc(c.key||'')+'" autocomplete="off"></label>'+
+    '<div class="auth-err" id="syErr" role="alert"></div>'+
+    (syncCfg()?'<div><b>Status:</b> '+esc(syncText())+(SY.status==='conflict'?' <button class="btn sm" data-act="syncResolve">Resolve</button>':'')+'</div>':'')+
+    '<details><summary class="strong" style="cursor:pointer">How to set it up</summary><ol style="margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:4px">'+
+    '<li>Open your Google Sheet, then Extensions, then Apps Script.</li>'+
+    '<li>Replace the code with the contents of Code.gs, set your own SECRET at the top, and save.</li>'+
+    '<li>Click Deploy, then New deployment, type Web app. Set Execute as to Me and Who has access to Anyone, then Deploy and approve the permissions.</li>'+
+    '<li>Paste the Web app URL and the same secret above.</li></ol></details>',
+    (syncCfg()?'<button class="btn danger" data-act="syncOff">Disconnect</button><button class="btn" data-act="syncNow">Sync now</button>':'<button class="btn" data-act="closeModal">Cancel</button>')+'<button class="btn primary" data-act="syncSave">Save and connect</button>');
+}
+
+/* ---------- actions ---------- */
+function afterTaskChange(){persist();render()}
+const ACTS={
+  setProject(b){S.activeId=b.dataset.id;U.status='';U.dl='';U.q='';U.sortKey='sl';U.sortDir=1;persist();render()},
+  setTheme(b){S.theme=b.dataset.id;applyTheme(S.theme);persist();renderSide()},
+  signOut(){signOut()},
+  openSync(){syncModal()},
+  async syncSave(){
+    const url=$('#syUrl').value.trim(),key=$('#syKey').value.trim();
+    if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)){toast('That does not look like a web app URL. It should end in /exec.');return}
+    if(!key){toast('Enter the secret key from your script.');return}
+    const prev=S.sync;
+    S.sync={url:url,key:key,version:0,hash:'',last:''};
+    setSync('loading');
+    try{await sheetCall({action:'ping'})}
+    catch(e){
+      S.sync=prev||null;setSync(prev?'idle':'off');
+      const msg=e&&e.code==='network'?await probeMsg(url):errMsg(e);
+      const box=$('#syErr');if(box)box.textContent=msg;else toast(msg);
+      return;
+    }
+    persist(true);closeModal();startSync();toast('Connected. Syncing...');
+  },
+  syncNow(){closeModal();syncRun('pull')},
+  syncResolve(){openConflict()},
+  syncOff(b){twoStep(b,()=>{stopSync();S.sync=null;persist(true);closeModal();render();toast('Disconnected. Your data stays in the sheet.')},'Click again to disconnect')},
+  syncUseSheet(){closeModal();if(SY.pending){const r=SY.pending;SY.pending=null;applyRemote(r)}},
+  syncKeepMine(){closeModal();SY.pending=null;setSync('idle');syncRun('force')},
+  syncLater(){closeModal()},
+  openUsers(){usersModal()},
+  async changePw(){
+    const a=$('#npw').value,b=$('#npw2').value;
+    if(a.length<8){toast('Use at least 8 characters.');return}
+    if(a!==b){toast('The passwords do not match.');return}
+    const salt=crypto.getRandomValues(new Uint8Array(16)),key=await deriveKey(a,salt);
+    SESSION.key=key;SESSION.salt=salt;
+    const u=getUsers();u[SESSION.name].salt=b64(salt);setUsers(u);
+    persist();await saveChain;closeModal();toast('Password changed');
+  },
+  async addUser(){
+    const name=$('#nuName').value,pw=$('#nuPw').value;
+    if(!normName(name)){toast('Enter a username.');return}
+    if(pw.length<8){toast('Use at least 8 characters for the password.');return}
+    if(getUsers()[normName(name)]){toast('That username is already taken.');return}
+    await makeAccount(name,pw,false,emptyWorkspace());
+    usersModal();toast('Added '+name.trim());
+  },
+  delUser(b){twoStep(b,()=>{
+    const n=b.dataset.name,u=getUsers();delete u[n];setUsers(u);localStorage.removeItem(dkey(n));usersModal();toast('User removed');
+  },'Confirm')},
+  newProject(){projectModal(true)},
+  openSettings(){projectModal(false)},
+  createProject(){
+    const name=$('#pName').value.trim();if(!name){toast('Give the project a name first.');return}
+    const copy=$('#pCopy').checked,from=cur();
+    const p={id:uid(),name:name,jiraBase:$('#pBase').value.trim(),columns:copy?clone(from.columns):defaultCols(),tasks:[]};
+    S.projects.push(p);S.activeId=p.id;U.status='';U.dl='';U.q='';persist();closeModal();render();toast('Created '+name);
+  },
+  saveProject(){
+    const name=$('#pName').value.trim();if(!name){toast('The project needs a name.');return}
+    const p=cur();p.name=name;p.jiraBase=$('#pBase').value.trim();persist();closeModal();render();toast('Project updated');
+  },
+  delProject(b){twoStep(b,()=>{
+    const id=cur().id;S.projects=S.projects.filter(p=>p.id!==id);S.activeId=S.projects[0].id;persist();closeModal();render();toast('Project deleted');
+  },'Click again to delete')},
+  addTask(){const p=cur();openDrawer(newTask(p),true)},
+  saveNew(){
+    const t=U.d.t,p=cur();
+    if(!String(t.feature||'').trim()){toast('Add a feature name first.');const i=document.querySelector('[data-bind="feature"]');if(i)i.focus();return}
+    p.tasks.push(t);U.d=null;persist();renderDrawer();render();toast('Task added');
+  },
+  closeDrawer(){closeDrawer();render()},
+  delTask(b){twoStep(b,()=>{const p=cur();p.tasks=p.tasks.filter(t=>t.id!==U.d.t.id);U.d=null;persist();renderDrawer();render();toast('Task deleted')},'Click again to delete')},
+  addSub(){U.d.t.jd.subtasks.push({id:uid(),key:'',summary:'',status:'To Do',assignee:''});if(!U.d.isNew)persist();renderDrawer();render()},
+  delSub(b){U.d.t.jd.subtasks.splice(+b.dataset.i,1);if(!U.d.isNew)persist();renderDrawer();render()},
+  addCmt(){
+    const text=$('#cText').value.trim(),author=$('#cAuthor').value.trim();
+    if(!text){toast('Write a comment first.');return}
+    S.me=author;U.d.t.jd.comments.push({id:uid(),author:author,date:new Date().toISOString(),text:text});
+    persist();renderDrawer();render();
+  },
+  delCmt(b){U.d.t.jd.comments.splice(+b.dataset.i,1);if(!U.d.isNew)persist();renderDrawer();render()},
+  fstatus(b){const v=b.dataset.v;U.status=(U.status===v?'':v);render()},
+  fdl(b){const v=b.dataset.v;U.dl=(U.dl===v?'':v);render()},
+  clearFilters(){U.status='';U.dl='';U.q='';render()},
+  sort(b){const k=b.dataset.key;if(U.sortKey===k)U.sortDir*=-1;else{U.sortKey=k;U.sortDir=1}renderTable()},
+  openCols(){colsModal()},
+  colUp(b){moveCol(b.dataset.key,-1)},
+  colDown(b){moveCol(b.dataset.key,1)},
+  colDel(b){twoStep(b,()=>{
+    const p=cur(),k=b.dataset.key;p.columns=p.columns.filter(c=>c.key!==k);p.tasks.forEach(t=>{delete t[k]});persist();colsModal();render();
+  },'Confirm')},
+  colAdd(){
+    const name=$('#ncName').value.trim(),type=$('#ncType').value;
+    if(!name){toast('Name the new column first.');return}
+    const p=cur();
+    if(p.columns.some(c=>c.label.toLowerCase()===name.toLowerCase())){toast('A column with that name already exists.');return}
+    const col={key:'c_'+uid(),label:name,type:type,builtin:false,visible:true};
+    if(type==='select')col.options=$('#ncOpts').value.split(',').map(s=>s.trim()).filter(Boolean);
+    p.columns.push(col);p.tasks.forEach(t=>{t[col.key]=''});persist();colsModal();render();toast('Added column '+name);
+  },
+  openExport(){exportModal()},
+  expXlsx(){exportXlsx()},
+  expPdf(){exportPdf()},
+  expJson(){const c=Object.assign({},S);delete c.sync;saveFile('task-tracker-backup-'+today()+'.json',JSON.stringify(c,null,2))},
+  impJson(){$('#importFile').click()},
+  closeModal(){closeModal()}
+};
+function moveCol(key,dir){
+  const p=cur(),i=p.columns.findIndex(c=>c.key===key),j=i+dir;
+  if(j<0||j>=p.columns.length)return;
+  const t=p.columns[i];p.columns[i]=p.columns[j];p.columns[j]=t;persist();colsModal();render();
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]');
+  if(b){const h=ACTS[b.dataset.act];if(h){h(b,e);return}}
+  if(e.target.closest('select,a,input,textarea'))return;
+  const tr=e.target.closest('tr[data-id]');
+  if(tr){const t=cur().tasks.find(x=>x.id===tr.dataset.id);if(t)openDrawer(t,false)}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    if($('#modal').innerHTML){closeModal();return}
+    if(U.d){closeDrawer();render()}
+    return;
+  }
+  if(e.key==='Enter'&&e.target.matches&&e.target.matches('tr[data-id]')){
+    const t=cur().tasks.find(x=>x.id===e.target.dataset.id);if(t)openDrawer(t,false);
+  }
+});
+let renderT;
+function onField(e){
+  const el=e.target;
+  if(el.dataset&&el.dataset.bind&&U.d){
+    let v=el.value;
+    if(el.dataset.num)v=v===''?'':Number(v);
+    setPath(U.d.t,el.dataset.bind,v);
+    if(el.dataset.bind==='feature'){const h=$('#dtitle');if(h)h.textContent=v||(U.d.isNew?'New task':'Untitled task')}
+    if(!U.d.isNew){persist();clearTimeout(renderT);renderT=setTimeout(render,200)}
+    return;
+  }
+  if(el.dataset&&el.dataset.statussel){
+    const t=cur().tasks.find(x=>x.id===el.dataset.statussel);
+    if(t){t.status=el.value;afterTaskChange()}
+    return;
+  }
+  if(el.id==='search'&&e.type==='input'){
+    U.q=el.value;renderTable();return;
+  }
+  if(el.id==='groupBy'){U.groupBy=el.value;renderSummary();return}
+  if(el.dataset&&el.dataset.colvis&&e.type==='change'){
+    const c=cur().columns.find(x=>x.key===el.dataset.colvis);if(c){c.visible=el.checked;persist();render()}return;
+  }
+  if(el.dataset&&el.dataset.collabel&&e.type==='change'){
+    const c=cur().columns.find(x=>x.key===el.dataset.collabel);
+    if(c){const v=el.value.trim();if(v){c.label=v;persist();render()}else el.value=c.label}return;
+  }
+  if(el.id==='ncType'){$('#ncOptsWrap').style.display=el.value==='select'?'':'none'}
+}
+document.addEventListener('input',onField);
+document.addEventListener('change',onField);
+$('#importFile').addEventListener('change',e=>{
+  const f=e.target.files&&e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const d=JSON.parse(r.result);
+      if(!d||!Array.isArray(d.projects)||!d.projects.length)throw new Error('bad');
+      d.projects.forEach(p=>{p.columns=p.columns&&p.columns.length?p.columns:defaultCols();p.tasks=(p.tasks||[]).map(ensureTask);p.jiraBase=p.jiraBase||'';p.id=p.id||uid()});
+      d.activeId=d.projects.some(p=>p.id===d.activeId)?d.activeId:d.projects[0].id;
+      d.theme=S.theme;d.sync=S.sync;initState(d);persist();closeModal();closeDrawer();render();toast('Backup restored');
+    }catch(err){toast('That file is not a valid backup.')}
+  };
+  r.readAsText(f);e.target.value='';
+});
+
+showAuth();
+})();
+</script>
+</body>
+</html>
