@@ -163,6 +163,13 @@ textarea{resize:vertical;min-height:72px}
 .sec{margin-top:26px}
 .sec:first-child{margin-top:0}
 .sec h3{font-size:17px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:18px;text-align:center;color:var(--muted);cursor:pointer;margin-bottom:10px}
+.drop:hover,.drop.over{border-color:var(--accent);color:var(--text);background:var(--surface2)}
+.ficon{display:inline-block;min-width:38px;text-align:center;padding:1px 6px;border-radius:6px;background:var(--surface2);border:var(--bw) solid var(--line);font-size:11px;font-weight:600;margin-right:6px}
+.modal.wide{width:min(940px,calc(100% - 24px))}
+.pre{margin:0;padding:12px;background:var(--surface2);border:var(--bw) solid var(--line);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:65vh;overflow:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace}
+.pv-img{max-width:100%;max-height:70vh;display:block;margin:0 auto;border-radius:8px}
+.pv-pdf{width:100%;height:70vh;border:var(--bw) solid var(--line);border-radius:8px}
 .rov{padding:8px 10px;background:var(--surface2);border:var(--bw) solid var(--line);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;min-height:37px}
 .hint{color:var(--muted);font-size:12.5px;margin:0 0 12px}
 .sub{display:grid;grid-template-columns:90px 1fr 120px 110px 30px;gap:6px;align-items:center;margin-bottom:6px}
@@ -216,6 +223,7 @@ body.lock{overflow:hidden}
 <div id="modal"></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
+<input type="file" id="fileInput" multiple hidden>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -281,6 +289,7 @@ function ensureTask(t){
   t.jd=Object.assign(blankJd(),t.jd||{});
   if(!Array.isArray(t.jd.comments))t.jd.comments=[];
   if(!Array.isArray(t.jd.subtasks))t.jd.subtasks=[];
+  if(!Array.isArray(t.files))t.files=[];
   if(!STATUS_IDS.includes(t.status))t.status='To Do';
   return t;
 }
@@ -576,7 +585,7 @@ function openDrawer(task,isNew){
     if((!f||Date.now()-Date.parse(f)>10*60*1000)&&Date.now()-tried>2*60*1000)loadJira(task,task.jira);
   }
 }
-function closeDrawer(){U.d=null;renderDrawer()}
+function closeDrawer(){if(U.d&&U.d.isNew&&U.d.t.files&&U.d.t.files.length)trashFiles(U.d.t.files);U.d=null;renderDrawer()}
 function renderDrawer(focus){
   const root=$('#drawer');
   if(!U.d){root.innerHTML='';document.body.classList.remove('lock');return}
@@ -589,6 +598,7 @@ function renderDrawer(focus){
     '<div class="dhead"><div><h2 id="dtitle">'+esc(t.feature||(isNew?'New task':'Untitled task'))+'</h2><p class="hint" style="margin:6px 0 0">'+esc(p.name)+(isNew?'':', changes save automatically')+'</p></div><button class="icon-btn" data-act="closeDrawer" aria-label="Close">&times;</button></div>'+
     '<div class="dbody">'+
       '<div class="sec"><h3>Task</h3><div class="grid2">'+taskFields(p,t)+'</div></div>'+
+      '<div class="sec" id="filesec">'+filesSection(t)+'</div>'+
       '<div id="jirasec">'+jiraSections(t,p)+'</div>'+
     '</div>'+
     '<div class="dfoot">'+(isNew?'<button class="btn" data-act="closeDrawer">Cancel</button><button class="btn primary" data-act="saveNew">Add task</button>':'<button class="btn danger" data-act="delTask">Delete task</button><button class="btn primary" data-act="closeDrawer">Close</button>')+'</div>'+
@@ -598,10 +608,10 @@ function renderDrawer(focus){
 }
 
 /* ---------- modals ---------- */
-function openModal(title,body,foot){
-  $('#modal').innerHTML='<div class="scrim" data-act="closeModal" style="z-index:49"></div><div class="modal" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><div class="mhead"><h2>'+esc(title)+'</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">&times;</button></div><div class="mbody">'+body+'</div>'+(foot?'<div class="mfoot">'+foot+'</div>':'')+'</div>';
+function openModal(title,body,foot,wide){
+  $('#modal').innerHTML='<div class="scrim" data-act="closeModal" style="z-index:49"></div><div class="modal'+(wide?' wide':'')+'" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><div class="mhead"><h2>'+esc(title)+'</h2><button class="icon-btn" data-act="closeModal" aria-label="Close">&times;</button></div><div class="mbody">'+body+'</div>'+(foot?'<div class="mfoot">'+foot+'</div>':'')+'</div>';
 }
-function closeModal(){$('#modal').innerHTML=''}
+function closeModal(){$('#modal').innerHTML='';if(FILES.url){URL.revokeObjectURL(FILES.url);FILES.url=''}}
 function colsModal(){
   const p=cur();
   const rows=p.columns.map((c,i)=>'<div class="colrow">'+
@@ -657,14 +667,15 @@ async function saveFile(filename,data){
 function exportScope(){const r=document.querySelector('input[name=scope]:checked');return r&&r.value==='all'?S.projects:[cur()]}
 function plain(t,c){const v=t[c.key];if(v==null)return '';return c.type==='date'?fmtDate(v):String(v)}
 function jiraRows(projs){
-  const det=[],cm=[],sub=[];
+  const det=[],cm=[],sub=[],att=[];
   projs.forEach(p=>sortedTasks(p,p.tasks,'sl',1).forEach(t=>{
     const j=t.jd;
     det.push({Project:p.name,SL:t.sl,Feature:t.feature||'','Jira key':t.jira||'',Summary:j.summary,Type:j.type,Priority:j.priority,Status:j.statusName||j.status,Assignee:j.assignee,Reporter:j.reporter,Created:fmtDate(j.created),Updated:fmtDate(j.updated),'Due date':fmtDate(j.due),Sprint:j.sprint,Labels:j.labels,Description:j.description});
+    (t.files||[]).forEach(f=>att.push({Project:p.name,SL:t.sl,Feature:t.feature||'',File:f.name,Size:fmtSize(f.size),Type:f.type||'','Uploaded by':f.by||'',Date:fmtDT(f.date)}));
     j.comments.forEach(c=>cm.push({Project:p.name,SL:t.sl,'Jira key':t.jira||'',Author:c.author,Date:fmtDT(c.date),Comment:c.text}));
     j.subtasks.forEach(s=>sub.push({Project:p.name,SL:t.sl,Parent:t.jira||'','Subtask key':s.key,Summary:s.summary,Status:s.statusName||s.status,Assignee:s.assignee}));
   }));
-  return {det,cm,sub};
+  return {det,cm,sub,att};
 }
 function exportXlsx(){
   if(!window.XLSX){toast('The Excel library has not loaded yet. Try again in a moment.');return}
@@ -682,6 +693,7 @@ function exportXlsx(){
     add(r.det,'Jira details',{Project:18,Feature:28,Summary:34,Description:50,Labels:20});
     add(r.cm,'Jira comments',{Project:18,Comment:70,Date:20});
     add(r.sub,'Subtasks',{Project:18,Summary:40});
+    add(r.att,'Attachments',{Project:18,Feature:28,File:40,Date:20});
   }
   const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
   const name=(projs.length>1?'all-projects':slug(projs[0].name))+'-tasks-'+today()+'.xlsx';
@@ -752,6 +764,8 @@ function errMsg(e){
     case 'no_users':return 'No users yet. Add rows to the Users tab of your sheet: username in column A, password in column B.';
     case 'session':return 'Your session has expired. Sign in again.';
     case 'busy':return 'The sheet is busy. Try again in a moment.';
+    case 'too_large':return 'That file is larger than 10 MB.';
+    case 'file_notfound':return 'That file is no longer in Drive.';
     case 'jira_setup':return 'Jira is not connected yet. In Apps Script add the script properties JIRA_BASE, JIRA_EMAIL and JIRA_TOKEN, then deploy a new version.';
     case 'jira_auth':return 'Jira rejected the email or API token saved in the script.';
     case 'jira_forbidden':return 'The Jira account used by the script cannot view this ticket.';
@@ -781,7 +795,7 @@ async function probeMsg(){
   return 'Diagnosis C: your browser cannot connect to script.google.com. Check your internet connection and turn off any ad blocker, VPN or firewall rule that may block it, or try another browser.';
 }
 function buildMirror(projs){
-  const used=new Set(['_data','users','jira details','jira comments','subtasks']);
+  const used=new Set(['_data','users','jira details','jira comments','subtasks','attachments']);
   const nm=n=>{const b=String(n).replace(/[\[\]:*?\/\\]/g,' ').trim().slice(0,60)||'Project';let s=b,i=2;while(used.has(s.toLowerCase()))s=b.slice(0,56)+' '+(i++);used.add(s.toLowerCase());return s};
   const sheets=[];
   projs.forEach(p=>{
@@ -793,6 +807,7 @@ function buildMirror(projs){
   tab(r.det,'Jira details',['Project','SL','Feature','Jira key','Summary','Type','Priority','Status','Assignee','Reporter','Created','Updated','Due date','Sprint','Labels','Description']);
   tab(r.cm,'Jira comments',['Project','SL','Jira key','Author','Date','Comment']);
   tab(r.sub,'Subtasks',['Project','SL','Parent','Subtask key','Summary','Status','Assignee']);
+  tab(r.att,'Attachments',['Project','SL','Feature','File','Size','Type','Uploaded by','Date']);
   return sheets;
 }
 function applyRemote(r){
@@ -916,6 +931,98 @@ async function loadJira(t,key){
   render();
 }
 
+/* ---------- File attachments (stored in Drive through the Apps Script) ---------- */
+const FILES={up:{},url:''};
+const MAX_FILE=10*1024*1024,MAX_FILES=20;
+const IMG_EXT=/\.(png|jpe?g|gif|webp|bmp)$/i,PDF_EXT=/\.pdf$/i,TXT_EXT=/\.(txt|log|csv|tsv|json|md|xml|ya?ml|ini|sql|conf|out)$/i;
+const IMG_MIME={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',bmp:'image/bmp'};
+function fileKind(f){const n=f.name||'';return IMG_EXT.test(n)?'image':PDF_EXT.test(n)?'pdf':(TXT_EXT.test(n)||/^text\//.test(f.type||''))?'text':'other'}
+function fmtSize(n){n=Number(n)||0;return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB'}
+function filesSection(t){
+  const files=t.files||[],ups=FILES.up[t.id]||[];
+  const tag={image:'IMG',pdf:'PDF',text:'TXT',other:'FILE'};
+  const rows=files.map((f,i)=>{
+    const k=fileKind(f);
+    return '<div class="urow"><span><span class="ficon">'+tag[k]+'</span><b>'+esc(f.name)+'</b> <span class="muted">'+fmtSize(f.size)+(f.by?', '+esc(f.by):'')+(f.date?', '+fmtDate(String(f.date).slice(0,10)):'')+'</span></span>'+
+      '<span style="display:flex;gap:6px;flex:none">'+(k!=='other'?'<button class="btn sm" data-act="filePreview" data-i="'+i+'">Preview</button>':'')+'<button class="btn sm" data-act="fileDownload" data-i="'+i+'">Download</button><button class="btn sm danger" data-act="fileRemove" data-i="'+i+'">Remove</button></span></div>';
+  }).join('');
+  const upRows=ups.map(u=>'<div class="urow"><span>'+esc(u.name)+'</span><span class="'+(u.err?'late':'muted')+'">'+esc(u.err||'Uploading...')+'</span></div>').join('');
+  return '<h3>Attachments <span class="muted" style="font:500 13px Instrument Sans,sans-serif">'+files.length+'</span></h3>'+
+    '<div class="drop" data-act="pickFiles" tabindex="0" role="button">Drop files here or click to choose.<br><span style="font-size:12.5px">Images, PDF, CSV, text, logs and more, up to 10 MB each.</span></div>'+upRows+rows;
+}
+function renderFileSec(){const el=$('#filesec');if(el&&U.d)el.innerHTML=filesSection(U.d.t)}
+function readB64(file){
+  return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=()=>rej(new Error('read'));r.readAsDataURL(file)});
+}
+async function uploadFiles(t,list){
+  if(!SESSION)return;
+  for(const file of Array.from(list)){
+    const ups=FILES.up[t.id]=FILES.up[t.id]||[];
+    const u={name:file.name};
+    if((t.files||[]).length>=MAX_FILES){toast('A task can have up to '+MAX_FILES+' files.');break}
+    if(file.size>MAX_FILE){u.err='Larger than 10 MB, not uploaded.';ups.push(u);if(U.d&&U.d.t===t)renderFileSec();setTimeout(()=>{FILES.up[t.id]=(FILES.up[t.id]||[]).filter(x=>x!==u);if(U.d&&U.d.t===t)renderFileSec()},6000);continue}
+    ups.push(u);if(U.d&&U.d.t===t)renderFileSec();
+    try{
+      const data=await readB64(file);
+      const r=await sheetCall({action:'upload',name:file.name,mime:file.type||'application/octet-stream',data:data});
+      t.files.push({id:r.file.id,name:r.file.name,size:r.file.size,type:r.file.type,by:SESSION?SESSION.user:'',date:new Date().toISOString()});
+      FILES.up[t.id]=FILES.up[t.id].filter(x=>x!==u);
+      if(cur().tasks.includes(t))persist();
+    }catch(e){
+      if(e&&e.code==='session'){signOut('expired');return}
+      u.err=e&&e.code==='network'?'Could not reach the sheet.':errMsg(e);
+      setTimeout(()=>{FILES.up[t.id]=(FILES.up[t.id]||[]).filter(x=>x!==u);if(U.d&&U.d.t===t)renderFileSec()},8000);
+    }
+    if(U.d&&U.d.t===t)renderFileSec();
+  }
+}
+async function fetchFile(f){
+  const r=await sheetCall({action:'download',id:f.id});
+  const bin=atob(r.data),u8=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+  return new Blob([u8],{type:r.type||f.type||'application/octet-stream'});
+}
+async function previewFile(f){
+  const k=fileKind(f);toast('Loading preview...');
+  try{
+    const blob=await fetchFile(f);
+    if(FILES.url){URL.revokeObjectURL(FILES.url);FILES.url=''}
+    if(k==='image'){
+      const ext=(f.name.split('.').pop()||'').toLowerCase();
+      FILES.url=URL.createObjectURL(new Blob([blob],{type:IMG_MIME[ext]||'image/png'}));
+      openModal(f.name,'<img class="pv-img" src="'+FILES.url+'" alt="'+esc(f.name)+'">','<button class="btn" data-act="closeModal">Close</button>',true);
+    }else if(k==='pdf'){
+      FILES.url=URL.createObjectURL(new Blob([blob],{type:'application/pdf'}));
+      openModal(f.name,'<iframe class="pv-pdf" src="'+FILES.url+'" title="'+esc(f.name)+'"></iframe>','<button class="btn" data-act="closeModal">Close</button>',true);
+    }else{
+      const text=new TextDecoder('utf-8').decode(await blob.arrayBuffer());
+      const cut=text.length>100000;
+      openModal(f.name,'<pre class="pre">'+esc(cut?text.slice(0,100000):text)+'</pre>'+(cut?'<p class="hint" style="margin:0">Showing the first 100,000 characters. Download the file to see all of it.</p>':''),'<button class="btn" data-act="closeModal">Close</button>',true);
+    }
+  }catch(e){toast(e&&e.code?errMsg(e):'Could not open the preview.')}
+}
+function trashFiles(list){(list||[]).forEach(f=>{sheetCall({action:'deleteFile',id:f.id}).catch(()=>{})})}
+document.addEventListener('dragover',e=>{
+  if(!e.dataTransfer||!Array.from(e.dataTransfer.types||[]).includes('Files'))return;
+  e.preventDefault();
+  const d=e.target.closest&&e.target.closest('.drop');
+  document.querySelectorAll('.drop.over').forEach(x=>{if(x!==d)x.classList.remove('over')});
+  if(d)d.classList.add('over');
+});
+document.addEventListener('dragleave',e=>{const d=e.target.closest&&e.target.closest('.drop');if(d&&!d.contains(e.relatedTarget))d.classList.remove('over')});
+document.addEventListener('drop',e=>{
+  if(!e.dataTransfer||!Array.from(e.dataTransfer.types||[]).includes('Files'))return;
+  e.preventDefault();
+  const d=e.target.closest&&e.target.closest('.drop');
+  document.querySelectorAll('.drop.over').forEach(x=>x.classList.remove('over'));
+  if(d&&U.d&&e.dataTransfer.files.length)uploadFiles(U.d.t,e.dataTransfer.files);
+});
+$('#fileInput').addEventListener('change',e=>{
+  const files=e.target.files;
+  if(U.d&&files&&files.length)uploadFiles(U.d.t,files);
+  e.target.value='';
+});
+
 /* ---------- actions ---------- */
 function afterTaskChange(){persist();render()}
 const ACTS={
@@ -940,7 +1047,7 @@ const ACTS={
     const p=cur();p.name=name;p.jiraBase=$('#pBase').value.trim();persist();closeModal();render();toast('Project updated');
   },
   delProject(b){twoStep(b,()=>{
-    const id=cur().id;S.projects=S.projects.filter(p=>p.id!==id);S.activeId=S.projects[0].id;persist();closeModal();render();toast('Project deleted');
+    const id=cur().id;trashFiles(cur().tasks.reduce((a,t)=>a.concat(t.files||[]),[]));S.projects=S.projects.filter(p=>p.id!==id);S.activeId=S.projects[0].id;persist();closeModal();render();toast('Project deleted');
   },'Click again to delete')},
   addTask(){const p=cur();openDrawer(newTask(p),true)},
   saveNew(){
@@ -949,7 +1056,20 @@ const ACTS={
     p.tasks.push(t);U.d=null;persist();renderDrawer();render();toast('Task added');
   },
   closeDrawer(){closeDrawer();render()},
-  delTask(b){twoStep(b,()=>{const p=cur();p.tasks=p.tasks.filter(t=>t.id!==U.d.t.id);U.d=null;persist();renderDrawer();render();toast('Task deleted')},'Click again to delete')},
+  delTask(b){twoStep(b,()=>{const p=cur();trashFiles(U.d.t.files);p.tasks=p.tasks.filter(t=>t.id!==U.d.t.id);U.d=null;persist();renderDrawer();render();toast('Task deleted')},'Click again to delete')},
+  pickFiles(){$('#fileInput').click()},
+  filePreview(b){const f=U.d&&U.d.t.files[+b.dataset.i];if(f)previewFile(f)},
+  async fileDownload(b){
+    const f=U.d&&U.d.t.files[+b.dataset.i];if(!f)return;
+    toast('Preparing '+f.name+'...');
+    try{saveFile(f.name,await fetchFile(f))}catch(e){toast(e&&e.code==='session'?errMsg(e):'Could not download: '+errMsg(e))}
+  },
+  fileRemove(b){twoStep(b,async()=>{
+    const t=U.d&&U.d.t,i=+b.dataset.i;if(!t||!t.files[i])return;
+    const f=t.files[i];
+    try{await sheetCall({action:'deleteFile',id:f.id})}catch(e){}
+    t.files.splice(i,1);if(!U.d.isNew)persist();renderFileSec();toast('Attachment removed');
+  },'Confirm')},
   jiraRefresh(){const t=U.d&&U.d.t;if(t&&t.jira)loadJira(t,t.jira)},
   fstatus(b){const v=b.dataset.v;U.status=(U.status===v?'':v);render()},
   fdl(b){const v=b.dataset.v;U.dl=(U.dl===v?'':v);render()},
@@ -997,6 +1117,7 @@ document.addEventListener('keydown',e=>{
     if(U.d){closeDrawer();render()}
     return;
   }
+  if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('.drop')){e.preventDefault();$('#fileInput').click();return}
   if(e.key==='Enter'&&e.target.matches&&e.target.matches('tr[data-id]')){
     const t=cur().tasks.find(x=>x.id===e.target.dataset.id);if(t)openDrawer(t,false);
   }
